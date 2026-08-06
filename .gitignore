@@ -1,0 +1,5 @@
+/.ai/
+/vendor/
+/node_modules/
+.env
+.idea/
