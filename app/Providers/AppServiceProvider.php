@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\MarketData\Calendar\AlpacaCalendarSource;
 use App\MarketData\Contracts\ValidationRule;
+use App\MarketData\Export\ParquetExporter;
 use App\MarketData\Validation\Rules\BarOnClosedDayRule;
 use App\MarketData\Validation\Rules\CrossSourceDivergenceRule;
 use App\MarketData\Validation\Rules\DuplicateBarRule;
@@ -32,6 +33,13 @@ class AppServiceProvider extends ServiceProvider
             baseUrl: Config::string('services.alpaca.base_url'),
             keyId: Config::string('services.alpaca.key_id'),
             secretKey: Config::string('services.alpaca.secret_key'),
+        ));
+
+        $this->app->bind(ParquetExporter::class, fn (): ParquetExporter => new ParquetExporter(
+            sharedPath: Config::string('market-data.shared_path'),
+            scriptPath: Config::string('market-data.export_script'),
+            pythonBinary: Config::string('market-data.python_binary'),
+            dsn: $this->postgresDsn(),
         ));
 
         // Seznam validačních pravidel musí existovat na jednom místě, aby
@@ -64,5 +72,18 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         //
+    }
+
+    /** DuckDB potřebuje libpq DSN, ne Laravelí konfiguraci — skládá se na jednom místě. */
+    private function postgresDsn(): string
+    {
+        return sprintf(
+            'host=%s port=%s dbname=%s user=%s password=%s',
+            Config::string('database.connections.pgsql.host'),
+            Config::string('database.connections.pgsql.port'),
+            Config::string('database.connections.pgsql.database'),
+            Config::string('database.connections.pgsql.username'),
+            Config::string('database.connections.pgsql.password'),
+        );
     }
 }
