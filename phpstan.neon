@@ -1,0 +1,13 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: max
+    paths:
+        - app
+        - database
+        - tests
+
+    # Plán předepisoval `checkMissingIterableValueType: true`. Ta volba patří
+    # PHPStanu 1.x; ve 2.x byla odstraněna a její přítomnost analýzu shodí.
+    # Na levelu max je kontrola typů v iterables zapnutá tak jako tak.
