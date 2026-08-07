@@ -10,7 +10,7 @@ Research platforma pro hledání swing strategií na US akciích, která ve fin�
 
 ## Stav k dnešnímu dni
 
-**Dokumentace: kompletní. Kód: Tasky 1–4 plánu podprojektu 1 hotové** — Laravel 13 skeleton s vynucenými konvencemi, testovací helpery (`EloquentMatcher`, `CollectionMatcher`, `DataMatcher`, `spyLogger`), security master (`instruments`, `instrument_symbols`, `SymbolResolver`) burzovní kalendář (`market_days`, `AlpacaCalendarSource`, `CalendarImporter`, `market-data:import-calendar`) a partitionované tabulky barů (`daily_bars`, `intraday_bars`, `BarData`, `PartitionManager`, `market-data:ensure-partitions`). Tasky 6–23 nezačaté.
+**Dokumentace: kompletní. Kód: Tasky 1–4 plánu podprojektu 1 hotové** — Laravel 13 skeleton s vynucenými konvencemi, testovací helpery (`EloquentMatcher`, `CollectionMatcher`, `DataMatcher`, `spyLogger`), security master (`instruments`, `instrument_symbols`, `SymbolResolver`) burzovní kalendář (`market_days`, `AlpacaCalendarSource`, `CalendarImporter`, `market-data:import-calendar`) partitionované tabulky barů (`daily_bars`, `intraday_bars`, `BarData`, `PartitionManager`, `market-data:ensure-partitions`) a corporate actions (`corporate_actions`, `CorporateActionTypeEnum`, `CorporateActionData`). Tasky 7–23 nezačaté.
 
 ```
 docs/superpowers/specs/2026-08-06-market-data-design.md          podprojekt 1
