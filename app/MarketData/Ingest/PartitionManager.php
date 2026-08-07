@@ -23,6 +23,25 @@ class PartitionManager
         ));
     }
 
+    /**
+     * Nad rámec plánu. daily_bars je partitionovaná podle date, takže insert do roku
+     * bez partition selže. Bulk dump může pokrývat libovolné roky, a spoléhat na to,
+     * že operátor pustil ensure-partitions se správným rozsahem, by import dělalo
+     * závislým na kroku, který nikdo nevynucuje.
+     */
+    public function ensureDailyYearsInStaging(string $stagingTable): void
+    {
+        /** @var array<int,object{year:int}> $years */
+        $years = DB::select(sprintf(
+            'SELECT DISTINCT extract(year FROM date)::int AS year FROM %s ORDER BY year',
+            $stagingTable,
+        ));
+
+        foreach ($years as $year) {
+            $this->ensureDailyYear($year->year);
+        }
+    }
+
     public function ensureIntradayMonth(int $year, int $month): void
     {
         $start = sprintf('%d-%02d-01', $year, $month);
