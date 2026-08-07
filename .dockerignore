@@ -1,0 +1,9 @@
+# Build context — do image se nic z toho nekopíruje, projekt se dovnitř dostává
+# bind mountem. Menší kontext znamená rychlejší build.
+.git
+.ai
+.claude
+docs
+vendor
+node_modules
+.env

@@ -32,30 +32,35 @@ Plány podprojektů 2–7 **neexistují**.
 
 ## Prostředí
 
-Zjištěno na původním stroji 2026-08-06 — na novém stroji je potřeba ověřit znovu:
+Ověřeno 2026-08-07 na Windows 11 stroji. **Prostředí běží v Dockeru** — zadavatel si vyžádal kontejnerizaci hned, takže Task 23 je předtažený na začátek. Sekce níže nahrazuje původní zjištění z Linux stroje.
 
-| Věc | Stav |
-|---|---|
-| PHP | 8.5.8 |
-| Composer | přítomen |
-| Postgres | 17.10, běží na **portu 5433** |
-| PHP `intl`, `zip` | přítomné |
-| PHP `pdo_pgsql` | **chybí — bez něj neprojde jediná migrace** |
-| Redis | není nainstalovaný a v plánu 1 se nepoužívá (locky jedou nad `database` storem) |
-| Docker | **záměrně se nepoužívá**; kontejnerizace je Task 23 |
-
-### Krok, který vyžaduje sudo
-
-Musí ho udělat člověk. V Claude Code stačí napsat `! <příkaz>`.
+Sestava se spouští z rootu projektu:
 
 ```bash
-sudo apt-get install -y php8.5-pgsql
-psql -p 5433 -c "CREATE ROLE forx LOGIN PASSWORD 'forx' CREATEDB"
-psql -p 5433 -c "CREATE DATABASE forx OWNER forx"
-psql -p 5433 -c "CREATE DATABASE forx_testing OWNER forx"
+docker compose up -d
+docker compose exec app <příkaz>       # PHP 8.5, composer
+docker compose exec research <příkaz>  # Python 3.13, duckdb, pyarrow
 ```
 
-Kontrola: `php -m | grep pdo_pgsql` musí vypsat `pdo_pgsql`. Pokud Postgres na novém stroji běží na jiném portu než 5433, uprav ho v Tasku 1 Step 3 plánu.
+| Služba | Stav |
+|---|---|
+| `app` | PHP **8.5.9**, Composer 2.10.2, extensions `pdo_pgsql`, `zip`, `intl`, `bcmath` |
+| `postgres` | Postgres **17.10**, databáze `forx` a `forx_testing`, uvnitř sítě `postgres:5432`, na hostu **5433** |
+| `research` | Python **3.13.14**, duckdb 1.5.5, pyarrow 25.0.0, pandas 3.0.5, psycopg |
+| `worker` | za profilem `worker` — `docker compose --profile worker up -d` až po Tasku 1 |
+| Redis | **není v sestavě**; Task 23 Step 3 to sám připouští, v plánu 1 jedou locky i fronty nad `database` storem. Přijde s podprojektem 4 |
+
+Ověřené kontrakty: PHP → Postgres přes PDO, Python → Postgres přes psycopg, DuckDB `postgres` extension čte Postgres (na tom stojí Task 21), sdílený volume `/shared` je zapisovatelný z `app` i `research`, bind mount repa je zapisovatelný.
+
+**Žádný krok se sudo není potřeba.** Role, obě databáze i extensions vznikají při `docker compose up`.
+
+### Co je na hostu (mimo Docker)
+
+PHP 8.4.3 a Composer 2.8.5 jsou nainstalované, ale **plán vyžaduje PHP 8.5** — host je proto na vývoj nepoužitelný a všechno jde přes `app` kontejner. `psql` na hostu není; klient je v `postgres` kontejneru.
+
+### Obsazené porty
+
+Na stroji běží další projekty (`stockmanager`, `wealthtracker`, `trading-*`). Obsazené je mimo jiné **5432**, proto Postgres této sestavy poslouchá na **5433**. Při přidávání služeb ověřit port předem.
 
 ## Jak pokračovat — čtyři možnosti
 

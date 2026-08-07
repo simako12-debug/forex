@@ -1,0 +1,88 @@
+# Kontejnerizace předtažená z Tasku 23 plánu podprojektu 1 na přání zadavatele.
+#
+# Dvě vědomé odchylky proti Tasku 23, obě zdůvodněné:
+#
+# 1. Redis chybí. Task 23 Step 3 sám říká: „Pokud to při dokončení tohoto tasku
+#    stále platí, je správné ho vynechat a přidat s podprojektem 4." Platí to —
+#    v plánu 1 jedou locky i fronty nad `database` storem. Redis přijde s Pythonem
+#    a job frontou v podprojektu 4.
+#
+# 2. `worker` je za profilem `worker`. `php artisan queue:work` neexistuje, dokud
+#    nedoběhne Task 1, a crash-loopující kontejner zaplevelí `docker compose ps`.
+#    Po Tasku 1 se spustí `docker compose --profile worker up -d`.
+#
+# Postgres poslouchá na hostu na 5433, protože 5432 je na tomto stroji obsazený
+# jiným projektem.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: .docker/app/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    volumes:
+      - .:/app
+      - shared:/shared
+    env_file: .env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sleep infinity
+
+  worker:
+    profiles: [worker]
+    build:
+      context: .
+      dockerfile: .docker/app/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    volumes:
+      - .:/app
+      - shared:/shared
+    env_file: .env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # --tries=1: ingest je idempotentní přes hash souboru a checkpoint, takže
+    # automatický retry by v půlce importu jen zamlžil, co se stalo.
+    command: php artisan queue:work --tries=1
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: forx
+      POSTGRES_PASSWORD: forx
+      POSTGRES_DB: forx
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./.docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forx -d forx"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  research:
+    build:
+      context: .
+      dockerfile: .docker/research/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    volumes:
+      - .:/app
+      - shared:/shared
+    env_file: .env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sleep infinity
+
+volumes:
+  postgres-data:
+  shared:
