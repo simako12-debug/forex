@@ -8,6 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-install pdo_pgsql zip intl bcmath \
     && rm -rf /var/lib/apt/lists/*
 
+# Parquet nezapisuje PHP — export je DuckDB skript, který ParquetExporter spouští
+# jako podproces. Musí tedy být ve stejném kontejneru jako PHP. Kontejner `research`
+# zůstává pro Python výzkumnou práci (pandas, pytest, kontraktní testy).
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
+    && pip3 install --no-cache-dir --break-system-packages duckdb \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN groupadd -g ${GID} app && useradd -u ${UID} -g ${GID} -m app
