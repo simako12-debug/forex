@@ -1,6 +1,7 @@
 <?php
 
 use App\MarketData\Console\EnsurePartitionsCommand;
+use App\MarketData\Console\ImportBulkBarsCommand;
 use App\MarketData\Console\ImportCalendarCommand;
 use App\MarketData\Console\ListValidationRulesCommand;
 use Illuminate\Foundation\Application;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     // nesahá — ta prohledává jen app/Console/Commands.
     ->withCommands([
         EnsurePartitionsCommand::class,
+        ImportBulkBarsCommand::class,
         ImportCalendarCommand::class,
         ListValidationRulesCommand::class,
     ])
