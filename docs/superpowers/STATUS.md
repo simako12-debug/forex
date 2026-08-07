@@ -10,7 +10,7 @@ Research platforma pro hledání swing strategií na US akciích, která ve fin�
 
 ## Stav k dnešnímu dni
 
-**Dokumentace: kompletní. Kód: Task 1 plánu podprojektu 1 hotový**, tj. Laravel 13 skeleton s vynucenými konvencemi. Tasky 2–23 nezačaté.
+**Dokumentace: kompletní. Kód: Tasky 1–2 plánu podprojektu 1 hotové** — Laravel 13 skeleton s vynucenými konvencemi a testovací helpery (`EloquentMatcher`, `CollectionMatcher`, `DataMatcher`, `spyLogger`). Tasky 3–23 nezačaté.
 
 ```
 docs/superpowers/specs/2026-08-06-market-data-design.md          podprojekt 1
