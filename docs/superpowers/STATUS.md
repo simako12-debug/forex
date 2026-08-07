@@ -40,7 +40,8 @@ docs/superpowers/specs/2026-08-07-backtest-engine-design.md      podprojekt 4
 docs/superpowers/specs/2026-08-07-research-workflow-design.md    podprojekt 5
 docs/superpowers/specs/2026-08-07-paper-execution-design.md      podprojekt 6
 docs/superpowers/specs/2026-08-07-live-execution-design.md       podprojekt 7
-docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků
+docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků — HOTOVO
+docs/superpowers/plans/2026-08-07-indicators.md                  plán podprojektu 2, 14 tasků — nezačatý
 ```
 
 Git: branch `main`, remote `origin` = https://github.com/simako12-debug/forex.git. Každý task má vlastní větev `tech/task-NN`, vlastní commit a merge commit do `main`; větve jsou po sloučení smazané. Commit message každého tasku vyjmenovává odchylky od plánu a jejich důvod.
@@ -88,13 +89,15 @@ Na stroji běží další projekty (`stockmanager`, `wealthtracker`, `trading-*`
 
 ## Jak pokračovat
 
-### 1. Napsat plán podprojektu 2 — doporučeno
+### 1. Vykonat plán podprojektu 2 — doporučeno
 
-Indikátorová vrstva v Pythonu. **Teď už to jde bez hádání:** Parquet schéma existuje, je zafixované kontraktním testem v `research/tests/test_parquet_contract.py` a sloupce se dají přečíst z view `daily_bars_adjusted`. Přesně kvůli tomu byl podprojekt 1 první.
+Plán je hotový: `docs/superpowers/plans/2026-08-07-indicators.md`, 14 tasků ve čtyřech etapách. Etapa 2a rozšiřuje snapshot z podprojektu 1 o metadata a manifest (PHP), etapy 2b–2d staví indikátorovou vrstvu v Pythonu.
+
+**Rozšíření snapshotu je součástí plánu 2, ne dodatek k plánu 1.** Export z podprojektu 1 nese jen bary, ale `listed_mask` potřebuje `listed_at`/`delisted_at`, `cs_rank` potřebuje členství v univerzu k datu a rozlišení mezery od warm-upu potřebuje kalendář.
 
 Instrukce pro novou session:
 
-> Napiš implementační plán podprojektu 2 podle `docs/superpowers/specs/2026-08-06-indicators-design.md`. Nejdřív si přečti `docs/superpowers/STATUS.md` a schéma Parquetu z migrace `2026_08_06_001200_create_daily_bars_adjusted_view.php`.
+> Vykonej implementační plán `docs/superpowers/plans/2026-08-07-indicators.md` od Tasku 1. Použij skill `superpowers:subagent-driven-development` nebo `superpowers:executing-plans`. Nejdřív si přečti `docs/superpowers/STATUS.md`.
 
 ### 2. Naimportovat reálná data
 
