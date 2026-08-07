@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
 use RuntimeException;
+use Tests\Support\TruncatesDatabaseAfterEachTest;
 use Tests\TestCase;
 
 #[CoversClass(MetadataExporter::class)]
@@ -23,6 +24,7 @@ final class MetadataExporterTest extends TestCase
     // DatabaseTruncation, ne RefreshDatabase: export běží jako samostatný proces
     // s vlastním připojením a data v nezacommitované transakci by neviděl.
     use DatabaseTruncation;
+    use TruncatesDatabaseAfterEachTest;
 
     private const string INSTRUMENT = '22222222-2222-4222-8222-222222222222';
 
@@ -35,10 +37,6 @@ final class MetadataExporterTest extends TestCase
                 unlink($path);
             }
         }
-
-        // DatabaseTruncation truncá jen před testem, ne po něm — bez tohoto zůstanou
-        // commitnuté řádky v DB a rozbijí navazující RefreshDatabase testy.
-        $this->truncateDatabaseTables();
 
         parent::tearDown();
     }

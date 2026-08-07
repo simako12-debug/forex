@@ -12,12 +12,14 @@ use App\MarketData\Models\Instrument;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Facades\App;
 use PHPUnit\Framework\Attributes\CoversClass;
+use Tests\Support\TruncatesDatabaseAfterEachTest;
 use Tests\TestCase;
 
 #[CoversClass(SnapshotExporter::class)]
 final class SnapshotExporterTest extends TestCase
 {
     use DatabaseTruncation;
+    use TruncatesDatabaseAfterEachTest;
 
     private const string INSTRUMENT = '33333333-3333-4333-8333-333333333333';
 
@@ -28,10 +30,6 @@ final class SnapshotExporterTest extends TestCase
         if (is_file($path) === true) {
             unlink($path);
         }
-
-        // DatabaseTruncation truncá jen před testem, ne po něm — bez tohoto zůstane
-        // commitnutý instrument/bar v DB a rozbije navazující RefreshDatabase testy.
-        $this->truncateDatabaseTables();
 
         parent::tearDown();
     }
