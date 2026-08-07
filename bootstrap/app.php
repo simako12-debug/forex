@@ -1,5 +1,6 @@
 <?php
 
+use App\MarketData\Console\EnsurePartitionsCommand;
 use App\MarketData\Console\ImportCalendarCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -15,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     // Commandy modulu žijí v app/MarketData/Console, kam autodiscovery Laravelu
     // nesahá — ta prohledává jen app/Console/Commands.
     ->withCommands([
+        EnsurePartitionsCommand::class,
         ImportCalendarCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
