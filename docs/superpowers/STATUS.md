@@ -23,7 +23,7 @@ docs/superpowers/specs/2026-08-07-live-execution-design.md       podprojekt 7
 docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků
 ```
 
-Git: branch `master`, remote `origin` = https://github.com/simako12-debug/forex.git. Tři commity:
+Git: branch `main`, remote `origin` = https://github.com/simako12-debug/forex.git. Tři commity:
 - `ef35bd4` — specifikace podprojektu 1 + `.claude` konfigurace zkopírovaná z monorepa
 - `ce7adbc` — specifikace podprojektů 2–7 + implementační plán podprojektu 1
 - `9314274` — tento dokument
