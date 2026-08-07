@@ -1879,7 +1879,7 @@ def test_rsi_monotonic_series_is_hundred() -> None:
 def test_rsi_zero_loss_does_not_divide_by_zero() -> None:
     result = rsi(_frame([1.0, 2.0, 3.0, 4.0]), window=3)["A"]
 
-    assert not result.iloc[3] != result.iloc[3]  # není NaN
+    assert not pd.isna(result.iloc[3])
     assert result.iloc[3] == pytest.approx(100.0)
 ```
 
@@ -2423,6 +2423,13 @@ def test_compute_unknown_feature_raises(tmp_path: Path) -> None:
         compute(panel, [FeatureRequest(name="neexistuje", params={})])
 
 
+def test_compute_cs_rank_without_source_request_raises(tmp_path: Path) -> None:
+    _, panel = _panel(tmp_path)
+
+    with pytest.raises(UnknownFeature):
+        compute(panel, [FeatureRequest(name="cs_rank", params={"source": "sma(input=adj_close,window=99)"})])
+
+
 def test_compute_warmup_longer_than_history_raises(tmp_path: Path) -> None:
     _, panel = _panel(tmp_path)
 
@@ -2528,10 +2535,21 @@ def compute(panel: BarPanel, requests: Sequence[FeatureRequest]) -> FeatureSet:
 
     Neznámá featura selže hned při skládání, ne až při čtení — psát překlep
     v názvu a zjistit to za hodinu uprostřed sweepu je zbytečná ztráta.
+
+    Totéž platí pro zdroj cross-sectional featury: cs_rank se odkazuje na jinou
+    featuru přes její feature_id, a ta musí být mezi požadavky.
     """
     for request in requests:
         if request.name not in REGISTRY:
             raise UnknownFeature(request.name)
+
+    known = {request.feature_id for request in requests}
+
+    for request in requests:
+        source = request.params.get("source")
+
+        if source is not None and str(source) not in known:
+            raise UnknownFeature(str(source))
 
     return FeatureSet(panel, requests)
 ```
