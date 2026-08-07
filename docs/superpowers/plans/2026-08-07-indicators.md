@@ -54,7 +54,7 @@ research/export_metadata.py                       DuckDB skript pro metadatové 
 # Etapa 2b–2d — Python, indikátorová vrstva
 research/pyproject.toml                           balíček forx, ruff, mypy, pytest
 research/forx/__init__.py                         veřejné API znovu-exportované
-research/forx/errors.py                           AdjustmentVersionMismatch, InsufficientHistory, UnknownFeature
+research/forx/errors.py                           AdjustmentVersionMismatchError, InsufficientHistoryError, UnknownFeatureError
 research/forx/request.py                          FeatureRequest + feature_id
 research/forx/panel.py                            BarPanel, load_panel, listed_mask
 research/forx/missing.py                          MissingReason a jeho odvození
@@ -832,7 +832,7 @@ Bez fixture nejde napsat jediný test dalších tasků, takže patří sem.
 **Interfaces:**
 - Consumes: snapshot z Tasku 3 (tvar složky)
 - Produces:
-  - `forx.errors.AdjustmentVersionMismatch`, `forx.errors.InsufficientHistory`, `forx.errors.UnknownFeature` — všechny dědí z `forx.errors.ForxError`
+  - `forx.errors.AdjustmentVersionMismatchError`, `forx.errors.InsufficientHistoryError`, `forx.errors.UnknownFeatureError` — všechny dědí z `forx.errors.ForxError`
   - `tests.fixtures.write_snapshot(root: Path) -> SnapshotSpec` — zapíše kanonický snapshot a vrátí popis toho, co v něm je
   - `tests.fixtures.SnapshotSpec` — `@dataclass(frozen=True)` s poli `dates`, `instrument_ids`, `delisted_id`, `latecomer_id`, `gap_id`, `gap_dates`, `benchmark_id`
 
@@ -873,6 +873,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RET"]
+# N818 se nepotlačuje — výjimky končí na Error, viz forx/errors.py.
 
 [tool.mypy]
 python_version = "3.13"
@@ -911,7 +912,7 @@ class ForxError(Exception):
     """Základ pro všechny chyby této vrstvy."""
 
 
-class AdjustmentVersionMismatch(ForxError):
+class AdjustmentVersionMismatchError(ForxError):
     """Snapshot byl vyexportován jinou verzí adjustment logiky, než Python očekává."""
 
     def __init__(self, expected: int, found: int) -> None:
@@ -923,7 +924,7 @@ class AdjustmentVersionMismatch(ForxError):
         self.found = found
 
 
-class InsufficientHistory(ForxError):
+class InsufficientHistoryError(ForxError):
     """Featura potřebuje delší warm-up, než kolik je v panelu dní."""
 
     def __init__(self, feature_id: str, required: int, available: int) -> None:
@@ -935,7 +936,7 @@ class InsufficientHistory(ForxError):
         self.available = available
 
 
-class UnknownFeature(ForxError):
+class UnknownFeatureError(ForxError):
     """Požadavek se odkazuje na featuru, která není v registru."""
 
     def __init__(self, name: str) -> None:
@@ -948,9 +949,9 @@ class UnknownFeature(ForxError):
 ```python
 """Indikátorová vrstva Forx."""
 
-from forx.errors import AdjustmentVersionMismatch, ForxError, InsufficientHistory, UnknownFeature
+from forx.errors import AdjustmentVersionMismatchError, ForxError, InsufficientHistoryError, UnknownFeatureError
 
-__all__ = ["AdjustmentVersionMismatch", "ForxError", "InsufficientHistory", "UnknownFeature"]
+__all__ = ["AdjustmentVersionMismatchError", "ForxError", "InsufficientHistoryError", "UnknownFeatureError"]
 ```
 
 - [ ] **Step 4: Napsat failující test fixture**
@@ -1347,7 +1348,7 @@ git commit -m "feat: FeatureRequest s deterministickým feature_id"
 - Test: `research/tests/test_panel.py`
 
 **Interfaces:**
-- Consumes: `forx.errors.AdjustmentVersionMismatch` (Task 4), fixture z Tasku 4
+- Consumes: `forx.errors.AdjustmentVersionMismatchError` (Task 4), fixture z Tasku 4
 - Produces:
   - `forx.panel.EXPECTED_ADJUSTMENT_LOGIC_VERSION: int` — hodnota `1`
   - `forx.panel.BarPanel` — `@dataclass(frozen=True)` s `adj_open`, `adj_high`, `adj_low`, `adj_close`, `adj_volume`, `close`, `volume`, `listed_mask`, `universe_mask`, všechno `pd.DataFrame` se stejným indexem i sloupci
@@ -1363,7 +1364,7 @@ from pathlib import Path
 
 import pytest
 
-from forx.errors import AdjustmentVersionMismatch
+from forx.errors import AdjustmentVersionMismatchError
 from forx.panel import load_panel
 from tests.fixtures import write_snapshot
 
@@ -1426,7 +1427,7 @@ def test_load_panel_rejects_wrong_adjustment_version(tmp_path: Path) -> None:
     payload["adjustment_logic_version"] = 99
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(AdjustmentVersionMismatch):
+    with pytest.raises(AdjustmentVersionMismatchError):
         load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
 
 
@@ -1465,7 +1466,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from forx.errors import AdjustmentVersionMismatch
+from forx.errors import AdjustmentVersionMismatchError
 
 EXPECTED_ADJUSTMENT_LOGIC_VERSION = 1
 
@@ -1531,7 +1532,7 @@ def _verify_manifest(parquet_root: Path) -> None:
     found = int(payload["adjustment_logic_version"])
 
     if found != EXPECTED_ADJUSTMENT_LOGIC_VERSION:
-        raise AdjustmentVersionMismatch(EXPECTED_ADJUSTMENT_LOGIC_VERSION, found)
+        raise AdjustmentVersionMismatchError(EXPECTED_ADJUSTMENT_LOGIC_VERSION, found)
 
 
 def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeIndex:
@@ -2343,7 +2344,7 @@ git commit -m "feat: cs_rank s percentilovým rankem nad univerzem k datu"
 - Test: `research/tests/test_compute.py`
 
 **Interfaces:**
-- Consumes: `BarPanel` (Task 6), `FeatureRequest` (Task 5), `REGISTRY` (Tasky 7–11), `InsufficientHistory`, `UnknownFeature` (Task 4)
+- Consumes: `BarPanel` (Task 6), `FeatureRequest` (Task 5), `REGISTRY` (Tasky 7–11), `InsufficientHistoryError`, `UnknownFeatureError` (Task 4)
 - Produces:
   - `forx.compute.FeatureSet` — `get(feature_id) -> pd.DataFrame`, `feature_ids() -> Sequence[str]`
   - `forx.compute.compute(panel, requests) -> FeatureSet`
@@ -2358,7 +2359,7 @@ from pathlib import Path
 import pytest
 
 from forx.compute import compute
-from forx.errors import InsufficientHistory, UnknownFeature
+from forx.errors import InsufficientHistoryError, UnknownFeatureError
 from forx.panel import load_panel
 from forx.request import FeatureRequest
 from tests.fixtures import write_snapshot
@@ -2419,14 +2420,14 @@ def test_compute_caches_result(tmp_path: Path) -> None:
 def test_compute_unknown_feature_raises(tmp_path: Path) -> None:
     _, panel = _panel(tmp_path)
 
-    with pytest.raises(UnknownFeature):
+    with pytest.raises(UnknownFeatureError):
         compute(panel, [FeatureRequest(name="neexistuje", params={})])
 
 
 def test_compute_cs_rank_without_source_request_raises(tmp_path: Path) -> None:
     _, panel = _panel(tmp_path)
 
-    with pytest.raises(UnknownFeature):
+    with pytest.raises(UnknownFeatureError):
         compute(panel, [FeatureRequest(name="cs_rank", params={"source": "sma(input=adj_close,window=99)"})])
 
 
@@ -2435,7 +2436,7 @@ def test_compute_warmup_longer_than_history_raises(tmp_path: Path) -> None:
 
     features = compute(panel, [FeatureRequest(name="sma", params={"window": 5000})])
 
-    with pytest.raises(InsufficientHistory):
+    with pytest.raises(InsufficientHistoryError):
         features.get("sma(input=adj_close,window=5000)")
 ```
 
@@ -2460,7 +2461,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from forx.errors import InsufficientHistory, UnknownFeature
+from forx.errors import InsufficientHistoryError, UnknownFeatureError
 from forx.features import REGISTRY
 from forx.panel import BarPanel
 from forx.request import FeatureRequest
@@ -2503,7 +2504,7 @@ class FeatureSet:
         available = len(self._panel.adj_close.index)
 
         if window > available:
-            raise InsufficientHistory(request.feature_id, window, available)
+            raise InsufficientHistoryError(request.feature_id, window, available)
 
     def _evaluate(self, request: FeatureRequest) -> pd.DataFrame:
         function = REGISTRY[request.name]
@@ -2541,7 +2542,7 @@ def compute(panel: BarPanel, requests: Sequence[FeatureRequest]) -> FeatureSet:
     """
     for request in requests:
         if request.name not in REGISTRY:
-            raise UnknownFeature(request.name)
+            raise UnknownFeatureError(request.name)
 
     known = {request.feature_id for request in requests}
 
@@ -2549,7 +2550,7 @@ def compute(panel: BarPanel, requests: Sequence[FeatureRequest]) -> FeatureSet:
         source = request.params.get("source")
 
         if source is not None and str(source) not in known:
-            raise UnknownFeature(str(source))
+            raise UnknownFeatureError(str(source))
 
     return FeatureSet(panel, requests)
 ```
