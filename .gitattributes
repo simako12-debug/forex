@@ -1,0 +1,30 @@
+# Konce řádků
+#
+# Globální core.autocrlf=true by na Windows zapisoval CRLF do pracovní kopie
+# a rozbil shell skripty. Tento soubor autocrlf pro odpovídající cesty přebíjí,
+# takže repo i pracovní kopie mají LF nezávisle na stroji.
+
+* text=auto eol=lf
+
+# Skripty musí mít LF vždy — s CRLF selže shebang
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Windows skripty naopak potřebují CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binární soubory — nikdy nepřevádět ani needitovat konce řádků
+*.parquet binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.gz      binary
+*.xz      binary
+*.woff    binary
+*.woff2   binary
