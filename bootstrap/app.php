@@ -3,6 +3,7 @@
 use App\MarketData\Console\EnsurePartitionsCommand;
 use App\MarketData\Console\ImportBulkBarsCommand;
 use App\MarketData\Console\ImportCalendarCommand;
+use App\MarketData\Console\ImportIncrementalBarsCommand;
 use App\MarketData\Console\ListValidationRulesCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         EnsurePartitionsCommand::class,
         ImportBulkBarsCommand::class,
         ImportCalendarCommand::class,
+        ImportIncrementalBarsCommand::class,
         ListValidationRulesCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
