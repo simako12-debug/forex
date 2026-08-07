@@ -4,6 +4,7 @@ use App\MarketData\Console\DataBenchmarkCommand;
 use App\MarketData\Console\DataHealthCommand;
 use App\MarketData\Console\EnsurePartitionsCommand;
 use App\MarketData\Console\ExportParquetCommand;
+use App\MarketData\Console\ExportSnapshotCommand;
 use App\MarketData\Console\ImportBulkBarsCommand;
 use App\MarketData\Console\ImportCalendarCommand;
 use App\MarketData\Console\ImportIncrementalBarsCommand;
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         DataHealthCommand::class,
         EnsurePartitionsCommand::class,
         ExportParquetCommand::class,
+        ExportSnapshotCommand::class,
         ImportBulkBarsCommand::class,
         ImportCalendarCommand::class,
         ImportIncrementalBarsCommand::class,
