@@ -24,7 +24,7 @@ final class MetadataExporterTest extends TestCase
     // s vlastním připojením a data v nezacommitované transakci by neviděl.
     use DatabaseTruncation;
 
-    private const string INSTRUMENT = '550e8400-e29b-41d4-a716-446655440000';
+    private const string INSTRUMENT = '22222222-2222-4222-8222-222222222222';
 
     protected function tearDown(): void
     {
@@ -35,6 +35,10 @@ final class MetadataExporterTest extends TestCase
                 unlink($path);
             }
         }
+
+        // DatabaseTruncation truncá jen před testem, ne po něm — bez tohoto zůstanou
+        // commitnuté řádky v DB a rozbijí navazující RefreshDatabase testy.
+        $this->truncateDatabaseTables();
 
         parent::tearDown();
     }

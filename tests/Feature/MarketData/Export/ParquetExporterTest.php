@@ -22,7 +22,7 @@ final class ParquetExporterTest extends TestCase
     // s vlastním připojením a data v nezacommitované transakci by neviděl.
     use DatabaseTruncation;
 
-    private const string INSTRUMENT = '550e8400-e29b-41d4-a716-446655440000';
+    private const string INSTRUMENT = '11111111-1111-4111-8111-111111111111';
     private const int YEAR = 2019;
 
     protected function tearDown(): void
@@ -32,6 +32,10 @@ final class ParquetExporterTest extends TestCase
         if (is_file($path) === true) {
             unlink($path);
         }
+
+        // DatabaseTruncation truncá jen před testem, ne po něm — bez tohoto zůstane
+        // commitnutý instrument/bar v DB a rozbije navazující RefreshDatabase testy.
+        $this->truncateDatabaseTables();
 
         parent::tearDown();
     }

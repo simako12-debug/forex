@@ -19,7 +19,22 @@ final class SnapshotExporterTest extends TestCase
 {
     use DatabaseTruncation;
 
-    private const string INSTRUMENT = '550e8400-e29b-41d4-a716-446655440000';
+    private const string INSTRUMENT = '33333333-3333-4333-8333-333333333333';
+
+    protected function tearDown(): void
+    {
+        $path = App::make(SnapshotExporter::class)->manifestPath();
+
+        if (is_file($path) === true) {
+            unlink($path);
+        }
+
+        // DatabaseTruncation truncá jen před testem, ne po něm — bez tohoto zůstane
+        // commitnutý instrument/bar v DB a rozbije navazující RefreshDatabase testy.
+        $this->truncateDatabaseTables();
+
+        parent::tearDown();
+    }
 
     public function testExportWritesManifest(): void
     {
