@@ -23,9 +23,10 @@ docs/superpowers/specs/2026-08-07-live-execution-design.md       podprojekt 7
 docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků
 ```
 
-Git: lokální repo na branchi `master`, **bez remote**. Dva commity:
+Git: branch `master`, remote `origin` = https://github.com/simako12-debug/forex.git. Tři commity:
 - `ef35bd4` — specifikace podprojektu 1 + `.claude` konfigurace zkopírovaná z monorepa
 - `ce7adbc` — specifikace podprojektů 2–7 + implementační plán podprojektu 1
+- `9314274` — tento dokument
 
 Plány podprojektů 2–7 **neexistují**.
 
@@ -128,4 +129,6 @@ Dvě vědomé odchylky od guidelines, obojí zdůvodněné v plánu:
 
 ## Přenos na jiný stroj
 
-Repo nemá remote. Přenést jde buď zkopírováním celé složky `/home/petrsima/custom/forx` (včetně `.git`), nebo přidáním remote a pushnutím. `.claude/` konfigurace je součástí repa, takže skilly a rules se přenesou s ním.
+`git clone https://github.com/simako12-debug/forex.git`. `.claude/` konfigurace je součástí repa, takže skilly a rules se přenesou s ním.
+
+Setup kroky výše jsou psané pro Linux (původní stroj, `/home/petrsima/custom/forx`). Na Windows je potřeba je přeložit — instalace `pdo_pgsql` i vytvoření rolí a databází probíhá jinak.
