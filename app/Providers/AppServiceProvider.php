@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\MarketData\Calendar\AlpacaCalendarSource;
 use App\MarketData\Contracts\ValidationRule;
+use App\MarketData\Export\MetadataExporter;
 use App\MarketData\Export\ParquetExporter;
 use App\MarketData\Validation\Rules\BarOnClosedDayRule;
 use App\MarketData\Validation\Rules\CrossSourceDivergenceRule;
@@ -38,6 +39,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ParquetExporter::class, fn (): ParquetExporter => new ParquetExporter(
             sharedPath: Config::string('market-data.shared_path'),
             scriptPath: Config::string('market-data.export_script'),
+            pythonBinary: Config::string('market-data.python_binary'),
+            dsn: $this->postgresDsn(),
+        ));
+
+        $this->app->bind(MetadataExporter::class, fn (): MetadataExporter => new MetadataExporter(
+            sharedPath: Config::string('market-data.shared_path'),
+            scriptPath: Config::string('market-data.metadata_script'),
             pythonBinary: Config::string('market-data.python_binary'),
             dsn: $this->postgresDsn(),
         ));
