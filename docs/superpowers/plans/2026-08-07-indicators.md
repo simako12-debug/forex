@@ -2559,7 +2559,7 @@ Do `research/forx/__init__.py` přidat `from forx.compute import FeatureSet, com
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_compute.py -q'`
-Expected: PASS, 6 testů
+Expected: PASS, 7 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
