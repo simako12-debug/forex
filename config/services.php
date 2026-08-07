@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'alpaca' => [
+        'base_url' => env('ALPACA_BASE_URL', 'https://api.alpaca.markets'),
+        'data_url' => env('ALPACA_DATA_URL', 'https://data.alpaca.markets'),
+        'key_id' => env('ALPACA_KEY_ID', ''),
+        'secret_key' => env('ALPACA_SECRET_KEY', ''),
+        'feed' => env('ALPACA_FEED', 'iex'),
+    ],
+
 ];

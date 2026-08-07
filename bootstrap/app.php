@@ -1,5 +1,6 @@
 <?php
 
+use App\MarketData\Console\ImportCalendarCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -11,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Commandy modulu žijí v app/MarketData/Console, kam autodiscovery Laravelu
+    // nesahá — ta prohledává jen app/Console/Commands.
+    ->withCommands([
+        ImportCalendarCommand::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         //
     })
