@@ -2,6 +2,7 @@
 
 Datum: 2026-08-06
 Stav: navržen, čeká na review
+Revize 2026-08-07: opraveno rozdělení rolí PHP/Python a doba nasazení `research` prostředí po rozhodnutí v [podprojektu 3](2026-08-06-strategy-definition-design.md). Parquet export tím přestává být pohodlnost pro budoucí sweepy a stává se **hlavním rozhraním mezi PHP daty a Python výpočty** — musí být hotový dřív než podprojekt 2.
 
 ## Kontext celého systému
 
@@ -13,7 +14,7 @@ Cílem je **research platforma pro hledání swing strategií na US akciích**, 
 |---|---|---|
 | Broker | Alpaca (US akcie + ETF) | čisté REST + WebSocket API, paper trading zdarma a okamžitě, historická data v ceně, jedna burzovní zóna a měna |
 | Automatizace | plná, ale jako poslední fáze; před ní povinná paper fáze | plná automatizace vynucuje idempotenci objednávek, reconciliaci, kill-switch a audit trail — to má smysl stavět až nad ověřenou strategií |
-| Stack | PHP jádro (data, orchestrace, API, UI, exekuce) + Python sidecar (backtest, sweepy) | PHP chybí vektorizovaná numerika a statistický ekosystém; u research platformy je rychlost cyklu hlavní metrika |
+| Stack | **Python** vlastní indikátory, strategie, backtest a rozhodnutí; **PHP** vlastní data, orchestraci, exekuci, reconciliaci, audit a monitoring | PHP chybí vektorizovaná numerika a statistický ekosystém; u research platformy je rychlost cyklu hlavní metrika. Rozdělení upřesněno v [podprojektu 3](2026-08-06-strategy-definition-design.md) — logika strategie existuje jen v Pythonu, takže divergence backtestu a živého provozu nemá kde vzniknout |
 | PHP framework | Laravel | scheduler, queue, console commands, migrace; `guidelines.md` i `.claude/rules/backend/*` jsou psané pro Laravel + `spatie/laravel-data` |
 | Univerzum | pravidlem definovaná likvidní podmnožina US trhu, vyhodnocená k datu, včetně delistovaných | eliminuje survivorship bias; `dollar volume` je lepší proxy likvidity než tržní kapitalizace a nepotřebuje fundamentální data |
 | Timeframy | denní pro celé univerzum, 5min pro top 500 podle mediánu dollar volume za posledních 12 měsíců | swing horizont 2–10 dní; intradenní data slouží k ověření, jestli časování vstupu vůbec přidává hodnotu proti fillu na open |
@@ -74,7 +75,7 @@ Dotaz „dej mi denní bary pro univerzum, jak vypadalo 15. března 2019" vrát�
 | `postgres` | Postgres 17 | zdroj pravdy |
 | `redis` | Redis | fronty, locky, progress, rate limiting |
 | `worker` | PHP queue worker | dlouhé importy a přepočty |
-| `research` | Python 3.13, pandas, pyarrow, duckdb | backtest worker (nasazuje se od podprojektu 4) |
+| `research` | Python 3.13, pandas, pyarrow, duckdb | indikátory, strategie, backtest — potřeba **od podprojektu 2**, ne od 4 |
 
 Bez nginx a bez web serveru — podprojekt 1 nemá HTTP vrstvu.
 
