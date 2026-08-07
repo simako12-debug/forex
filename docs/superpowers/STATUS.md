@@ -10,7 +10,27 @@ Research platforma pro hledání swing strategií na US akciích, která ve fin�
 
 ## Stav k dnešnímu dni
 
-**Dokumentace: kompletní. Kód: Tasky 1–4 plánu podprojektu 1 hotové** — Laravel 13 skeleton s vynucenými konvencemi, testovací helpery (`EloquentMatcher`, `CollectionMatcher`, `DataMatcher`, `spyLogger`), security master (`instruments`, `instrument_symbols`, `SymbolResolver`) burzovní kalendář (`market_days`, `AlpacaCalendarSource`, `CalendarImporter`, `market-data:import-calendar`) partitionované tabulky barů (`daily_bars`, `intraday_bars`, `BarData`, `PartitionManager`, `market-data:ensure-partitions`) corporate actions (`corporate_actions`) a audit ingestu (`ingest_runs`, `validation_findings`). Tasky 8–23 nezačaté.
+**Podprojekt 1 je hotový. Všech 23 tasků plánu odpracováno.** 128 PHP testů a 3 Python kontraktní testy zelené, PHPStan na levelu max bez chyb, phpcs bez chyb.
+
+Co existuje:
+
+| Vrstva | Obsah |
+|---|---|
+| Skeleton | Laravel 13.24, PHPUnit, PHPStan max + larastan, phpcs (PSR-12, 120 znaků, `strict_types`) |
+| Testovací helpery | `EloquentMatcher`, `CollectionMatcher`, `DataMatcher`, `TestCase::spyLogger()`, `Tests\Support\StagingFixture` |
+| Katalog | `instruments`, `instrument_symbols` + `SymbolResolver`, `market_days` + Alpaca kalendář, `corporate_actions` |
+| Sklad | `daily_bars` a `intraday_bars` partitionované, `PartitionManager` |
+| Audit | `ingest_runs`, `validation_findings` |
+| Ingest | `BarSourcePort`, bulk CSV zdroj s hashem, staging + `COPY`, množinový resolve, karanténa, `IngestPipeline`, `BarMerger`, inkrementální Alpaca zdroj s rate limitem a lockem |
+| Validace | 8 pravidel (3 error, 5 warning) nad `AbstractStagingRule`, `ValidationRunner` s karanténou po instrumentu |
+| Adjustment | `adjustment_factors`, `AdjustmentFactorCalculator`, view `daily_bars_adjusted` |
+| Univerzum | `universe_definitions`, `universe_members`, `UniverseMemberResolver` s point-in-time členstvím |
+| Export | `ParquetExporter` + DuckDB skript, kontraktní testy v `research/tests` |
+| Provoz | `market-data:health` s nenulovým exit kódem, `market-data:benchmark`, scheduler, kanonický fixture seeder |
+
+Devět příkazů v `php artisan list market-data`.
+
+**Plány a kód podprojektů 2–7 neexistují.** Podprojekt 1 tím splnil svou roli: Parquet snapshot je hotový a otestovaný, takže podprojekt 2 (indikátory v Pythonu) má na čem stavět a nemusí hádat tvar dat.
 
 ```
 docs/superpowers/specs/2026-08-06-market-data-design.md          podprojekt 1
@@ -23,12 +43,7 @@ docs/superpowers/specs/2026-08-07-live-execution-design.md       podprojekt 7
 docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků
 ```
 
-Git: branch `main`, remote `origin` = https://github.com/simako12-debug/forex.git. Tři commity:
-- `ef35bd4` — specifikace podprojektu 1 + `.claude` konfigurace zkopírovaná z monorepa
-- `ce7adbc` — specifikace podprojektů 2–7 + implementační plán podprojektu 1
-- `9314274` — tento dokument
-
-Plány podprojektů 2–7 **neexistují**.
+Git: branch `main`, remote `origin` = https://github.com/simako12-debug/forex.git. Každý task má vlastní větev `tech/task-NN`, vlastní commit a merge commit do `main`; větve jsou po sloučení smazané. Commit message každého tasku vyjmenovává odchylky od plánu a jejich důvod.
 
 ## Prostředí
 
@@ -47,10 +62,19 @@ docker compose exec research <příkaz>  # Python 3.13, duckdb, pyarrow
 | `app` | PHP **8.5.9**, Composer 2.10.2, extensions `pdo_pgsql`, `zip`, `intl`, `bcmath` |
 | `postgres` | Postgres **17.10**, databáze `forx` a `forx_testing`, uvnitř sítě `postgres:5432`, na hostu **5433** |
 | `research` | Python **3.13.14**, duckdb 1.5.5, pyarrow 25.0.0, pandas 3.0.5, psycopg |
-| `worker` | za profilem `worker` — `docker compose --profile worker up -d` až po Tasku 1 |
+| `worker` | `php artisan queue:work --tries=1`, běží s `docker compose up -d` |
 | Redis | **není v sestavě**; Task 23 Step 3 to sám připouští, v plánu 1 jedou locky i fronty nad `database` storem. Přijde s podprojektem 4 |
 
-Ověřené kontrakty: PHP → Postgres přes PDO, Python → Postgres přes psycopg, DuckDB `postgres` extension čte Postgres (na tom stojí Task 21), sdílený volume `/shared` je zapisovatelný z `app` i `research`, bind mount repa je zapisovatelný.
+Ověřené kontrakty: PHP → Postgres přes PDO, Python → Postgres přes psycopg, DuckDB `postgres` extension čte Postgres, sdílený volume `/shared` je zapisovatelný z `app` i `research`, bind mount repa je zapisovatelný. Ověřovací sekvence z Tasku 23 projde celá:
+
+```bash
+docker compose build
+docker compose run --rm app php artisan migrate
+docker compose run --rm app php artisan test      # 128 passed
+docker compose run --rm research sh -c 'cd /app/research && python -m pytest'   # 3 passed
+```
+
+`app` image obsahuje i `python3` s `duckdb`, protože `ParquetExporter` spouští exportní skript jako podproces a nemůže sáhnout do cizího kontejneru. `research` zůstává pro výzkumnou práci a kontraktní testy.
 
 **Žádný krok se sudo není potřeba.** Role, obě databáze i extensions vznikají při `docker compose up`.
 
@@ -62,36 +86,44 @@ PHP 8.4.3 a Composer 2.8.5 jsou nainstalované, ale **plán vyžaduje PHP 8.5** 
 
 Na stroji běží další projekty (`stockmanager`, `wealthtracker`, `trading-*`). Obsazené je mimo jiné **5432**, proto Postgres této sestavy poslouchá na **5433**. Při přidávání služeb ověřit port předem.
 
-## Jak pokračovat — čtyři možnosti
+## Jak pokračovat
 
-### 1. Spustit plán podprojektu 1 — doporučeno
+### 1. Napsat plán podprojektu 2 — doporučeno
 
-Odpracovat `docs/superpowers/plans/2026-08-06-market-data.md` od Tasku 1. Plán je psaný tak, aby ho šlo vykonávat task po tasku bez dalšího rozhodování; každý task končí vlastním commitem.
-
-**Proč právě tohle první:** plán podprojektu 2 se opírá o skutečné schéma Parquetu, které vzniká až v Tasku 21 tohoto plánu. Napsat ho dřív znamená hádat názvy sloupců a tvar dat, které za dva dny vygeneruje kód.
-
-**Proč to nezdržuje volba brokera:** Alpaca je v plánu 1 jen na dvou místech (kalendář, inkrementální ingest) a obojí je za portem s vyměnitelným adaptérem. I kdyby se ukázalo, že účet z ČR nejde otevřít, přepíše se jeden adaptér, ne datový sklad.
+Indikátorová vrstva v Pythonu. **Teď už to jde bez hádání:** Parquet schéma existuje, je zafixované kontraktním testem v `research/tests/test_parquet_contract.py` a sloupce se dají přečíst z view `daily_bars_adjusted`. Přesně kvůli tomu byl podprojekt 1 první.
 
 Instrukce pro novou session:
 
-> Vykonej implementační plán `docs/superpowers/plans/2026-08-06-market-data.md` od Tasku 1. Použij skill `superpowers:subagent-driven-development` nebo `superpowers:executing-plans`. Nejdřív si přečti `docs/superpowers/STATUS.md`.
+> Napiš implementační plán podprojektu 2 podle `docs/superpowers/specs/2026-08-06-indicators-design.md`. Nejdřív si přečti `docs/superpowers/STATUS.md` a schéma Parquetu z migrace `2026_08_06_001200_create_daily_bars_adjusted_view.php`.
 
-### 2. Ověřit externí neznámé
+### 2. Naimportovat reálná data
+
+Zatím na sklad nikdy nesáhla jiná data než fixture. Do prvního reálného importu se nedozvíme, jak se pravidla chovají na skutečném dumpu — kolik nenapárovaných tickerů, kolik OHLC nálezů, jak dlouho běží `COPY` u stomilionového souboru. K tomu je potřeba koupit dump (viz externí neznámé níže) a pustit:
+
+```bash
+docker compose exec app php artisan market-data:ensure-partitions --from-year=2000
+docker compose exec app php artisan market-data:import-calendar     # potřebuje Alpaca klíče
+docker compose exec app php artisan market-data:import-bulk /shared/dumps/daily.csv
+docker compose exec app php artisan market-data:health
+```
+
+### 3. Dopsat ingest intradenních barů
+
+Jediná část rozsahu specifikace podprojektu 1, kterou plán vědomě nepokryl — viz Známé mezery.
+
+### 4. Ověřit externí neznámé
 
 Fakta, která specifikace vědomě neobsahují, protože to nejsou návrhová rozhodnutí. Žádné z nich neblokuje plán 1, ale všechna budou potřeba dřív nebo později:
 
 - **Přijímá Alpaca aktuálně účty z ČR?** Seznam podporovaných zemí se mění. Blokuje podprojekty 6–7.
 - **Povolují podmínky brokera automatizované obchodování přes API?** U Alpaky a IBKR se to čeká, u XTB spíš ne.
-- **Cena a přesný rozsah bulk dumpů** — FirstRateData (16 272 tickerů, z toho 7 000+ delistovaných, denní od 2000) a HistoricalData.net (denní i 1min od 2003, 50 000+ delistovaných symbolů). Potřeba pro Task 15 na reálných datech.
+- **Cena a přesný rozsah bulk dumpů** — FirstRateData (16 272 tickerů, z toho 7 000+ delistovaných, denní od 2000) a HistoricalData.net (denní i 1min od 2003, 50 000+ delistovaných symbolů). **Teď už blokuje** — bez dumpu nejde spustit reálný import.
 - **Aktuální sazby SEC Section 31 fee a FINRA TAF.** Backtest bez nich má podle specifikace **selhat**, ne použít nulu. Potřeba pro podprojekt 4.
+- **Alpaca API klíče.** `ALPACA_KEY_ID` a `ALPACA_SECRET_KEY` v `.env` jsou prázdné, takže `market-data:import-calendar` i `market-data:import-incremental` proti reálnému API zatím neproběhly. Adaptéry jsou otestované proti `Http::fake()`, ne proti živému endpointu — **formát odpovědi je tím ověřený jen podle dokumentace, ne empiricky.**
 
-### 3. Napsat plán podprojektu 2
+### 5. Projít specifikace a měnit rozhodnutí
 
-Implementační plán indikátorové vrstvy. Nevýhoda je popsaná v možnosti 1 — část plánu by byla odhad k přepisu.
-
-### 4. Projít specifikace a měnit rozhodnutí
-
-Měnit návrhová rozhodnutí je teď zdarma, po implementaci ne. Nejcitlivější místa, kde by změna měla největší dopad:
+U podprojektů 2–7 je změna návrhových rozhodnutí ještě zdarma. Nejcitlivější místa:
 
 - logika strategie jen v Pythonu (přepisuje role celého systému)
 - scoring s cross-sectional prahem místo absolutního
@@ -108,6 +140,12 @@ Měnit návrhová rozhodnutí je teď zdarma, po implementaci ne. Nejcitlivějš
 **Parquet nezapisuje PHP.** V PHP neexistuje zralý zapisovač Parquetu. Export je DuckDB příkaz, který přes `postgres` extension čte Postgres. Adjustment vzorec žije v Postgres view `daily_bars_adjusted`, které vlastní PHP migrace — tím existuje v systému právě jednou a Python ho neimplementuje.
 
 **Redis v plánu 1 chybí záměrně.** Etapa 1a potřebuje jen atomický lock, který Laravel umí nad `database` storem. Redis nastupuje s Python job frontou v podprojektu 4; jeho role ze specifikace platí nezměněně.
+
+**Worker běží, ale nikdy nezpracoval job.** V plánu 1 nevzniká jediná queued job — fronty nastupují s podprojektem 4. Ověřeno je, že v kontejneru `worker` běží `php artisan queue:work --tries=1` jako PID 1 bez restartů a že je fronta dostupná; průchod skutečného jobu ne, protože není co poslat.
+
+**Adaptéry Alpaky nejsou ověřené proti živému API.** Testy jedou proti `Http::fake()`, což je záměr (síť v testech je zakázaná), ale znamená to, že tvar odpovědi odpovídá dokumentaci, ne měření. Při změně formátu spadne test adaptéru — což je ta správná vrstva, ale spadne až po ruční opravě fake dat.
+
+**Task 23 byl předtažený na začátek.** Zadavatel si vyžádal Docker hned, takže kontejnerizace nevznikla jako poslední task, ale jako první krok. Její dokončení (odstranění compose profilu u workeru, ověřovací sekvence) proběhlo až na konci, protože do té doby nebylo co spouštět.
 
 ## Dvanáct kritických invariantů
 
