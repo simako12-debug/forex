@@ -32,17 +32,18 @@ final readonly class SnapshotManifest
     /** @param array<string,mixed> $payload */
     public static function fromArray(array $payload): self
     {
+        /** @var int $adjustmentLogicVersion */
+        $adjustmentLogicVersion = $payload['adjustment_logic_version'];
+        /** @var string $exportedAt */
+        $exportedAt = $payload['exported_at'];
         /** @var array<int,int> $years */
         $years = $payload['years'];
         /** @var array<string,int> $rowCounts */
         $rowCounts = $payload['row_counts'];
 
-        $adjustmentLogicVersion = $payload['adjustment_logic_version'];
-        $exportedAt = $payload['exported_at'];
-
         return new self(
-            adjustmentLogicVersion: (int) $adjustmentLogicVersion, // @phpstan-ignore-line
-            exportedAt: (string) $exportedAt, // @phpstan-ignore-line
+            adjustmentLogicVersion: $adjustmentLogicVersion,
+            exportedAt: $exportedAt,
             years: $years,
             rowCounts: $rowCounts,
         );
