@@ -1,5 +1,7 @@
 <?php
 
+use App\MarketData\Console\DataBenchmarkCommand;
+use App\MarketData\Console\DataHealthCommand;
 use App\MarketData\Console\EnsurePartitionsCommand;
 use App\MarketData\Console\ExportParquetCommand;
 use App\MarketData\Console\ImportBulkBarsCommand;
@@ -22,6 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
     // Commandy modulu žijí v app/MarketData/Console, kam autodiscovery Laravelu
     // nesahá — ta prohledává jen app/Console/Commands.
     ->withCommands([
+        DataBenchmarkCommand::class,
+        DataHealthCommand::class,
         EnsurePartitionsCommand::class,
         ExportParquetCommand::class,
         ImportBulkBarsCommand::class,
