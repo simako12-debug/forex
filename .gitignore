@@ -34,3 +34,6 @@ Thumbs.db
 # ale Laravel je řeší vnořenými .gitignore, které ignorují obsah a přitom zachovají
 # strukturu adresářů. Blanket ignore v kořeni by ty adresáře z repa odstranil úplně
 # a čerstvý klon by nenastartoval.
+
+# SDD workspace — scratch pro subagent-driven-development, nikdy necommitovat
+/.superpowers/
