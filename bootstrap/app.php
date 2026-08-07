@@ -6,6 +6,7 @@ use App\MarketData\Console\ImportCalendarCommand;
 use App\MarketData\Console\ImportIncrementalBarsCommand;
 use App\MarketData\Console\ListValidationRulesCommand;
 use App\MarketData\Console\RecalculateAdjustmentsCommand;
+use App\MarketData\Console\RebuildUniverseCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -25,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ImportCalendarCommand::class,
         ImportIncrementalBarsCommand::class,
         ListValidationRulesCommand::class,
+        RebuildUniverseCommand::class,
         RecalculateAdjustmentsCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
