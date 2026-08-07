@@ -9,7 +9,7 @@ class ForxError(Exception):
     """Základ pro všechny chyby této vrstvy."""
 
 
-class AdjustmentVersionMismatch(ForxError):
+class AdjustmentVersionMismatchError(ForxError):
     """Snapshot byl vyexportován jinou verzí adjustment logiky, než Python očekává."""
 
     def __init__(self, expected: int, found: int) -> None:
@@ -21,7 +21,7 @@ class AdjustmentVersionMismatch(ForxError):
         self.found = found
 
 
-class InsufficientHistory(ForxError):
+class InsufficientHistoryError(ForxError):
     """Featura potřebuje delší warm-up, než kolik je v panelu dní."""
 
     def __init__(self, feature_id: str, required: int, available: int) -> None:
@@ -33,7 +33,7 @@ class InsufficientHistory(ForxError):
         self.available = available
 
 
-class UnknownFeature(ForxError):
+class UnknownFeatureError(ForxError):
     """Požadavek se odkazuje na featuru, která není v registru."""
 
     def __init__(self, name: str) -> None:

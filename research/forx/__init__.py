@@ -1,5 +1,5 @@
 """Indikátorová vrstva Forx."""
 
-from forx.errors import AdjustmentVersionMismatch, ForxError, InsufficientHistory, UnknownFeature
+from forx.errors import AdjustmentVersionMismatchError, ForxError, InsufficientHistoryError, UnknownFeatureError
 
-__all__ = ["AdjustmentVersionMismatch", "ForxError", "InsufficientHistory", "UnknownFeature"]
+__all__ = ["AdjustmentVersionMismatchError", "ForxError", "InsufficientHistoryError", "UnknownFeatureError"]

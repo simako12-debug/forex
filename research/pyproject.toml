@@ -31,9 +31,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RET"]
-# N818: interface spec (task-4-brief) vyžaduje přesné názvy tříd bez sufixu
-# "Error" — AdjustmentVersionMismatch, InsufficientHistory, UnknownFeature.
-ignore = ["N818"]
+# N818 se nepotlačuje — výjimky končí na Error, viz forx/errors.py.
 
 [tool.mypy]
 python_version = "3.13"

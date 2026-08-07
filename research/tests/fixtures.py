@@ -1,8 +1,9 @@
 """Kanonický snapshot pro testy indikátorové vrstvy.
 
 Je záměrně jiný než fixture podprojektu 1: menší (4 instrumenty × 250 dní) a
-zaměřený na to, co potřebuje indikátorová vrstva — delisting v polovině, pozdní
-vstup, třídenní mezera a benchmark s plnou historií.
+zaměřený na to, co potřebuje indikátorová vrstva — instrument s třídenní mezerou
+v barech, delisting v polovině, pozdní vstup a benchmark, který má jako jediný
+skutečně nepřerušenou historii.
 
 Ceny jsou deterministické, počítané ze vzorce, ne náhodné. Golden testy potřebují
 znát hodnoty předem.
@@ -18,7 +19,7 @@ import pandas as pd
 
 ADJUSTMENT_LOGIC_VERSION = 1
 
-FULL_ID = "11111111-1111-1111-1111-111111111111"
+GAP_ID = "11111111-1111-1111-1111-111111111111"
 DELISTED_ID = "22222222-2222-2222-2222-222222222222"
 LATECOMER_ID = "33333333-3333-3333-3333-333333333333"
 BENCHMARK_ID = "44444444-4444-4444-4444-444444444444"
@@ -61,7 +62,7 @@ def _trading_dates() -> tuple[date, ...]:
 def _close_for(instrument_id: str, index: int) -> float:
     """Deterministická, hladká a nezáporná řada. Sinus dá lokální maxima i minima,
     takže rolling_high a rolling_low mají co najít."""
-    base = {FULL_ID: 100.0, DELISTED_ID: 50.0, LATECOMER_ID: 20.0, BENCHMARK_ID: 200.0}[instrument_id]
+    base = {GAP_ID: 100.0, DELISTED_ID: 50.0, LATECOMER_ID: 20.0, BENCHMARK_ID: 200.0}[instrument_id]
 
     return round(base * (1.0 + 0.05 * math.sin(index / 7.0)) + index * 0.01, 4)
 
@@ -79,7 +80,7 @@ def _is_active(instrument_id: str, index: int) -> bool:
 def write_snapshot(root: Path) -> SnapshotSpec:
     """Zapíše kanonický Parquet snapshot do `root` a vrátí popis toho, co v něm je."""
     dates = _trading_dates()
-    instrument_ids = (FULL_ID, DELISTED_ID, LATECOMER_ID, BENCHMARK_ID)
+    instrument_ids = (GAP_ID, DELISTED_ID, LATECOMER_ID, BENCHMARK_ID)
 
     _write_bars(root, dates, instrument_ids)
     _write_metadata(root, dates, instrument_ids)
@@ -92,7 +93,7 @@ def write_snapshot(root: Path) -> SnapshotSpec:
         delisted_last_date=dates[DELISTING_INDEX],
         latecomer_id=LATECOMER_ID,
         latecomer_first_date=dates[LATECOMER_INDEX],
-        gap_id=FULL_ID,
+        gap_id=GAP_ID,
         gap_dates=tuple(dates[i] for i in GAP_INDEXES),
         benchmark_id=BENCHMARK_ID,
     )
@@ -106,7 +107,7 @@ def _write_bars(root: Path, dates: tuple[date, ...], instrument_ids: tuple[str, 
             if not _is_active(instrument_id, index):
                 continue
 
-            if instrument_id == FULL_ID and index in GAP_INDEXES:
+            if instrument_id == GAP_ID and index in GAP_INDEXES:
                 continue
 
             close = _close_for(instrument_id, index)
