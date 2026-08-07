@@ -2,6 +2,7 @@
 
 use App\MarketData\Console\EnsurePartitionsCommand;
 use App\MarketData\Console\ImportCalendarCommand;
+use App\MarketData\Console\ListValidationRulesCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         EnsurePartitionsCommand::class,
         ImportCalendarCommand::class,
+        ListValidationRulesCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         //
