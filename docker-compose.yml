@@ -7,9 +7,9 @@
 #    v plánu 1 jedou locky i fronty nad `database` storem. Redis přijde s Pythonem
 #    a job frontou v podprojektu 4.
 #
-# 2. `worker` je za profilem `worker`. `php artisan queue:work` neexistuje, dokud
-#    nedoběhne Task 1, a crash-loopující kontejner zaplevelí `docker compose ps`.
-#    Po Tasku 1 se spustí `docker compose --profile worker up -d`.
+# 2. `worker` byl do Tasku 1 za compose profilem, protože `php artisan queue:work`
+#    ještě neexistoval. Laravel skeleton je hotový, takže profil je odstraněn
+#    a worker běží normálně.
 #
 # Konfiguraci aplikace nese .env (vzniká z .env.example), ne env_file — jinak by
 # existovaly dva zdroje pravdy a promenné z prostředí by přebíjely phpunit.xml.
@@ -34,7 +34,6 @@ services:
     command: sleep infinity
 
   worker:
-    profiles: [worker]
     build:
       context: .
       dockerfile: .docker/app/Dockerfile
