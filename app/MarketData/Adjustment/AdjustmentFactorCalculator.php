@@ -28,6 +28,13 @@ use Illuminate\Support\Facades\DB;
  */
 class AdjustmentFactorCalculator
 {
+    /**
+     * Zvedni tuhle konstantu VŽDY, když se změní vzorec adjustmentu. Python má
+     * očekávanou hodnotu u sebe a při nesouladu odmítne snapshot načíst — což je
+     * jediná ochrana proti tomu, aby indikátory tiše jely nad starými cenami.
+     */
+    public const int LOGIC_VERSION = 1;
+
     public function recalculate(string $instrumentId): int
     {
         return DB::transaction(function () use ($instrumentId): int {
