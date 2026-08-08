@@ -955,6 +955,17 @@ class UnknownInputError(ForxError):
         self.name = name
 
 
+class UnknownBenchmarkError(ForxError):
+    """Benchmark pro relativní sílu není mezi sloupci panelu."""
+
+    def __init__(self, benchmark_id: str) -> None:
+        super().__init__(
+            f"Benchmark {benchmark_id} není v panelu. Panel se musí stavět včetně něj, "
+            "i když není členem univerza."
+        )
+        self.benchmark_id = benchmark_id
+
+
 class IncompleteSnapshotError(ForxError):
     """Snapshot postrádá soubor s bary pro rok, který spadá do požadovaného období.
 
@@ -979,6 +990,7 @@ from forx.errors import (
     ForxError,
     IncompleteSnapshotError,
     InsufficientHistoryError,
+    UnknownBenchmarkError,
     UnknownFeatureError,
     UnknownInputError,
 )
@@ -988,6 +1000,7 @@ __all__ = [
     "ForxError",
     "IncompleteSnapshotError",
     "InsufficientHistoryError",
+    "UnknownBenchmarkError",
     "UnknownFeatureError",
     "UnknownInputError",
 ]
@@ -2273,6 +2286,7 @@ git commit -m "feat: rolling_high, rolling_low a dollar_volume_ma"
 import pandas as pd
 import pytest
 
+from forx.errors import UnknownBenchmarkError
 from forx.features.relative import relative_strength
 
 
@@ -2307,7 +2321,7 @@ def test_relative_strength_warmup_is_nan() -> None:
 
 
 def test_relative_strength_missing_benchmark_raises() -> None:
-    with pytest.raises(KeyError):
+    with pytest.raises(UnknownBenchmarkError):
         relative_strength(_panel(), window=2, benchmark_id="NENI")
 ```
 
@@ -2325,6 +2339,8 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'forx.features.relative
 
 import pandas as pd
 
+from forx.errors import UnknownBenchmarkError
+
 
 def relative_strength(frame: pd.DataFrame, window: int, benchmark_id: str) -> pd.DataFrame:
     """(C_t / C_{t-n}) / (B_t / B_{t-n}); hodnota > 1 znamená překonání benchmarku.
@@ -2333,7 +2349,7 @@ def relative_strength(frame: pd.DataFrame, window: int, benchmark_id: str) -> pd
     i když není členem univerza.
     """
     if benchmark_id not in frame.columns:
-        raise KeyError(f"Benchmark {benchmark_id} není v panelu.")
+        raise UnknownBenchmarkError(benchmark_id)
 
     instrument_return = frame / frame.shift(window)
     benchmark_return = frame[benchmark_id] / frame[benchmark_id].shift(window)
