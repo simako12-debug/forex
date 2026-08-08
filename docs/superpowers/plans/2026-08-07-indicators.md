@@ -1928,21 +1928,32 @@ def _frame(values: list[float]) -> pd.DataFrame:
 
 
 def test_atr_golden_wilder_recurrence() -> None:
-    high = _frame([10.0, 11.0, 12.0, 11.0])
+    """První dva TR se MUSÍ lišit, jinak test nerozliší Wilder od naivní EMA.
+
+    Kdyby TR_0 == TR_1, seed jako průměr prvních n hodnot a seed jako první
+    hodnota řady by daly totéž a od té chvíle jsou obě rekurence shodné — test
+    by prošel i implementaci s alpha = 1/n seedovanou první hodnotou.
+    """
+    high = _frame([12.0, 11.0, 12.0, 11.0])
     low = _frame([8.0, 10.0, 11.0, 9.0])
     close = _frame([9.0, 10.8, 11.5, 9.5])
 
-    # TR_0 = H-L = 2.0 (bez předchozího close)
-    # TR_1 = max(1.0, |11-9|=2.0, |10-9|=1.0)      = 2.0
+    # TR_0 = H-L = 4.0 (bez předchozího close)
+    # TR_1 = max(1.0, |11-9|=2.0, |10-9|=1.0)       = 2.0
     # TR_2 = max(1.0, |12-10.8|=1.2, |11-10.8|=0.2) = 1.2
     # TR_3 = max(2.0, |11-11.5|=0.5, |9-11.5|=2.5)  = 2.5
-    # ATR_2 = (2.0 + 2.0 + 1.2) / 3                 = 1.7333333
-    # ATR_3 = (1.7333333 * 2 + 2.5) / 3             = 1.9888889
+    # ATR_2 = (4.0 + 2.0 + 1.2) / 3                 = 2.4
+    # ATR_3 = (2.4 * 2 + 2.5) / 3                   = 2.4333333
+    #
+    # Pro srovnání, kdyby se seedovalo první hodnotou (naivní EMA, alpha = 1/3):
+    #   EMA_2 = (1/3)*1.2 + (2/3)*((1/3)*2.0 + (2/3)*4.0) = 2.6222222
+    # a jednoduchý klouzavý průměr by dal ATR_3 = mean(2.0, 1.2, 2.5) = 1.9.
+    # Obě čísla se od golden hodnot liší, takže test konvenci skutečně drží.
     result = atr(high, low, close, window=3)["A"]
 
     assert pd.isna(result.iloc[1])
-    assert result.iloc[2] == pytest.approx(1.7333333, abs=1e-6)
-    assert result.iloc[3] == pytest.approx(1.9888889, abs=1e-6)
+    assert result.iloc[2] == pytest.approx(2.4, abs=1e-6)
+    assert result.iloc[3] == pytest.approx(2.4333333, abs=1e-6)
 
 
 def test_rsi_golden_wilder_recurrence() -> None:
