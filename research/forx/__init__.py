@@ -6,12 +6,15 @@ from forx.errors import (
     InsufficientHistoryError,
     UnknownFeatureError,
 )
+from forx.panel import BarPanel, load_panel
 from forx.request import FeatureRequest
 
 __all__ = [
     "AdjustmentVersionMismatchError",
+    "BarPanel",
     "FeatureRequest",
     "ForxError",
     "InsufficientHistoryError",
     "UnknownFeatureError",
+    "load_panel",
 ]
