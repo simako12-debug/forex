@@ -27,6 +27,7 @@ Platí pro každý task, i když ho task nezmiňuje.
 - **Žádná síť v testech, žádná závislost na reálném exportu.** Testy si Parquet fixture vygenerují samy.
 - **Žádné `assert` v produkčním kódu** jako kontrola vstupu — chyba vstupu je vlastní výjimka s vysvětlením.
 - Všechny indikátory jsou **kauzální**: hodnota k datu *D* používá jen data s datem ≤ *D*. Žádné centrované okno, žádný `shift(-1)`, žádná interpolace přes budoucí hodnoty.
+- **Mezera v datech ruší stav rekurze.** Rekurzivní indikátory (`ema`, `atr`, `rsi`) se po chybějícím baru musí naseedovat znovu a do té doby vracet `NaN` — stejně jako `sma` přes `min_periods`. Přenášet poslední hodnotu přes mezeru je tichá imputace: indikátor by tvrdil, že se cena nehnula, i když o ní nic nevíme.
 - Peněžní a cenové porovnání v testech přes `pytest.approx` s explicitní tolerancí, nikdy `==` nad floaty.
 - Příkazy se spouštějí z rootu projektu přes kontejner:
   `docker compose exec app <php příkaz>`, `docker compose exec research sh -c 'cd /app/research && <python příkaz>'`.
@@ -1761,6 +1762,24 @@ def test_ema_recurrence_matches_formula() -> None:
     assert result.iloc[3] == pytest.approx(expected)
 
 
+def test_sma_and_ema_agree_on_interior_gap() -> None:
+    """Mezera uprostřed řady musí obě funkce umlčet na stejně dlouho.
+
+    Kdyby EMA přenášela poslední hodnotu, vydala by hned za mezerou číslo,
+    zatímco SMA je ještě NaN — tichá imputace, kterou plán zakazuje.
+    """
+    gapped = _frame([1.0, 2.0, 3.0, float("nan"), 5.0, 6.0, 7.0])
+
+    sma_result = sma(gapped, window=3)["A"]
+    ema_result = ema(gapped, window=3)["A"]
+
+    assert pd.isna(sma_result.iloc[3]) and pd.isna(ema_result.iloc[3])
+    assert pd.isna(sma_result.iloc[4]) and pd.isna(ema_result.iloc[4])
+    assert pd.isna(sma_result.iloc[5]) and pd.isna(ema_result.iloc[5])
+    assert not pd.isna(sma_result.iloc[6])
+    assert not pd.isna(ema_result.iloc[6])
+
+
 def test_sma_ignores_leading_nan_as_warmup() -> None:
     result = sma(_frame([float("nan"), 2.0, 3.0, 4.0]), window=3)["A"]
 
@@ -1814,15 +1833,18 @@ def ema(frame: pd.DataFrame, window: int) -> pd.DataFrame:
         previous = np.nan
 
         for position in range(len(values)):
+            # Mezera ruší stav rekurze. Seed z rolling().mean() je po mezeře NaN,
+            # dokud zase nebude window platných hodnot za sebou — tím se EMA
+            # naseeduje znovu a chová se stejně jako SMA.
+            if np.isnan(values[position]):
+                previous = np.nan
+
+                continue
+
             if np.isnan(previous):
                 if not np.isnan(seeds[position]):
                     previous = seeds[position]
                     output[position] = previous
-
-                continue
-
-            if np.isnan(values[position]):
-                output[position] = previous
 
                 continue
 
@@ -1862,7 +1884,7 @@ __all__ = ["REGISTRY", "FeatureFn", "ema", "sma"]
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_moving.py -q'`
-Expected: PASS, 4 testy
+Expected: PASS, 5 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
@@ -1940,6 +1962,32 @@ def test_rsi_golden_wilder_recurrence() -> None:
     assert result.iloc[4] == pytest.approx(66.666667, abs=1e-5)
 
 
+def test_atr_reseeds_after_gap() -> None:
+    """Chybějící bar ruší stav Wilderovy rekurence, stejně jako u SMA a EMA."""
+    high = _frame([10.0, 11.0, 12.0, float("nan"), 12.0, 13.0, 14.0])
+    low = _frame([8.0, 10.0, 11.0, float("nan"), 10.0, 11.0, 12.0])
+    close = _frame([9.0, 10.8, 11.5, float("nan"), 11.0, 12.0, 13.0])
+
+    result = atr(high, low, close, window=3)["A"]
+
+    assert not pd.isna(result.iloc[2])
+    assert pd.isna(result.iloc[3])
+    assert pd.isna(result.iloc[4])
+    assert pd.isna(result.iloc[5])
+    assert not pd.isna(result.iloc[6])
+
+
+def test_rsi_reseeds_after_gap() -> None:
+    """Totéž pro RSI — po mezeře je potřeba window platných změn za sebou."""
+    close = _frame([10.0, 11.0, 10.5, 12.0, float("nan"), 12.0, 13.0, 12.5, 13.5])
+
+    result = rsi(close, window=3)["A"]
+
+    assert not pd.isna(result.iloc[3])
+    assert pd.isna(result.iloc[4])
+    assert pd.isna(result.iloc[5])
+
+
 def test_rsi_monotonic_series_is_hundred() -> None:
     result = rsi(_frame([1.0, 2.0, 3.0, 4.0, 5.0]), window=3)["A"]
 
@@ -1977,18 +2025,37 @@ import pandas as pd
 
 
 def _wilder_smooth(values: np.ndarray, window: int) -> np.ndarray:
-    """ATR_n = mean(x_1..x_n); ATR_t = (ATR_{t-1} * (n-1) + x_t) / n."""
+    """ATR_n = mean(x_1..x_n); ATR_t = (ATR_{t-1} * (n-1) + x_t) / n.
+
+    Mezera v datech ruší stav rekurze: po chybějící hodnotě se vyhlazování musí
+    naseedovat znovu z window platných hodnot za sebou, stejně jako SMA. Přenášet
+    poslední hodnotu přes mezeru by byla tichá imputace.
+    """
     output = np.full(len(values), np.nan)
+    previous = np.nan
+    run = 0
 
-    if len(values) < window:
-        return output
+    for position in range(len(values)):
+        value = values[position]
 
-    seed = np.mean(values[:window])
-    output[window - 1] = seed
-    previous = seed
+        if np.isnan(value):
+            previous = np.nan
+            run = 0
 
-    for position in range(window, len(values)):
-        previous = (previous * (window - 1) + values[position]) / window
+            continue
+
+        run += 1
+
+        if np.isnan(previous):
+            if run < window:
+                continue
+
+            previous = float(np.mean(values[position - window + 1 : position + 1]))
+            output[position] = previous
+
+            continue
+
+        previous = (previous * (window - 1) + value) / window
         output[position] = previous
 
     return output
@@ -2004,16 +2071,21 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, window: int)
         close_values = close[column].to_numpy(dtype="float64")
 
         previous_close = np.concatenate(([np.nan], close_values[:-1]))
-        true_range = np.nanmax(
-            np.vstack(
-                [
-                    high_values - low_values,
-                    np.abs(high_values - previous_close),
-                    np.abs(low_values - previous_close),
-                ]
-            ),
-            axis=0,
+        candidates = np.vstack(
+            [
+                high_values - low_values,
+                np.abs(high_values - previous_close),
+                np.abs(low_values - previous_close),
+            ]
         )
+
+        # nanmax nad sloupcem samých NaN vypíše RuntimeWarning a testový výstup má
+        # být čistý. Chybějící bar (H i L jsou NaN) proto do výpočtu nevstupuje;
+        # jeho TR zůstane NaN a _wilder_smooth si na něm zruší stav rekurze.
+        has_bar = np.isnan(high_values) == False  # noqa: E712
+        has_bar &= np.isnan(low_values) == False  # noqa: E712
+        true_range = np.full(len(high_values), np.nan)
+        true_range[has_bar] = np.nanmax(candidates[:, has_bar], axis=0)
 
         result[column] = _wilder_smooth(true_range, window)
 
@@ -2050,7 +2122,7 @@ Do `research/forx/features/__init__.py` přidat import `from forx.features.wilde
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_wilder.py -q'`
-Expected: PASS, 4 testy
+Expected: PASS, 6 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
