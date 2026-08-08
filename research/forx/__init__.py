@@ -1,5 +1,6 @@
 """Indikátorová vrstva Forx."""
 
+from forx.compute import FeatureSet, compute
 from forx.errors import (
     AdjustmentVersionMismatchError,
     ForxError,
@@ -16,11 +17,13 @@ __all__ = [
     "AdjustmentVersionMismatchError",
     "BarPanel",
     "FeatureRequest",
+    "FeatureSet",
     "ForxError",
     "IncompleteSnapshotError",
     "InsufficientHistoryError",
     "UnknownBenchmarkError",
     "UnknownFeatureError",
     "UnknownInputError",
+    "compute",
     "load_panel",
 ]
