@@ -2528,9 +2528,14 @@ git commit -m "feat: cs_rank s percentilovým rankem nad univerzem k datu"
 ```python
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from forx.compute import compute
+from forx.features.cross_section import cs_rank
+from forx.features.moving import sma
+from forx.features.relative import relative_strength
+from forx.features.wilder import atr
 from forx.errors import InsufficientHistoryError, UnknownFeatureError
 from forx.panel import load_panel
 from forx.request import FeatureRequest
@@ -2587,6 +2592,47 @@ def test_compute_caches_result(tmp_path: Path) -> None:
     second = features.get("sma(input=adj_close,window=20)")
 
     assert first is second
+
+
+def test_compute_atr_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """Pojistka proti prohozeným maticím v dispatchi.
+
+    atr bere tři matice a jejich pořadí nejde poznat z výsledku — prohozené
+    high a low dá pořád věrohodná čísla. Porovnání s přímým voláním to zachytí.
+    """
+    _, panel = _panel(tmp_path)
+    request = FeatureRequest(name="atr", params={"window": 14})
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = atr(panel.adj_high, panel.adj_low, panel.adj_close, window=14)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_relative_strength_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """benchmark se musí vyjmout z params a předat jako benchmark_id."""
+    spec, panel = _panel(tmp_path)
+    request = FeatureRequest(
+        name="relative_strength",
+        params={"window": 20, "benchmark": spec.benchmark_id},
+    )
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = relative_strength(panel.adj_close, window=20, benchmark_id=spec.benchmark_id)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_cs_rank_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """cs_rank si zdroj vyžádá rekurzivně a dostane masku univerza, ne panel."""
+    _, panel = _panel(tmp_path)
+    source = FeatureRequest(name="sma", params={"window": 20})
+    ranked = FeatureRequest(name="cs_rank", params={"source": source.feature_id})
+
+    actual = compute(panel, [source, ranked]).get(ranked.feature_id)
+    expected = cs_rank(sma(panel.adj_close, window=20), panel.universe_mask)
+
+    pd.testing.assert_frame_equal(actual, expected)
 
 
 def test_compute_unknown_feature_raises(tmp_path: Path) -> None:
@@ -2732,7 +2778,7 @@ Do `research/forx/__init__.py` přidat `from forx.compute import FeatureSet, com
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_compute.py -q'`
-Expected: PASS, 7 testů
+Expected: PASS, 10 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
