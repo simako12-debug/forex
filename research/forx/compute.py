@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from forx.errors import InsufficientHistoryError, UnknownFeatureError
+from forx.errors import InsufficientHistoryError, InvalidWindowError, UnknownFeatureError
 from forx.features import REGISTRY
 from forx.panel import BarPanel
 from forx.request import FeatureRequest
@@ -17,6 +17,25 @@ from forx.request import FeatureRequest
 _MULTI_INPUT_FEATURES = frozenset({"atr"})
 _CROSS_SECTIONAL_FEATURES = frozenset({"cs_rank"})
 _BENCHMARK_FEATURES = frozenset({"relative_strength"})
+
+# cs_rank se na svůj zdroj odkazuje přes feature_id zdrojové featury, který musí
+# být mezi požadavky (viz compute()). Tahle rekurze nemá cycle guard záměrně:
+# feature_id zdroje je vnořený jako celý řetězec do feature_id cs_rank
+# (např. "cs_rank(input=...,source=sma(input=...,window=20))"), takže cyklus
+# (A se odkazuje na B, B na A) by vyžadoval, aby si oba feature_id byly navzájem
+# podřetězcem — to není konstruovatelné. Tahle pojistka zmizí, pokud se formát
+# feature_id v budoucnu změní na hash nebo jinak zkrácenou reprezentaci.
+
+# Kolik řádků navíc nad window indikátor potřebuje, než vydá první hodnotu.
+# rsi spotřebuje jeden řádek na první změnu ceny (diff), relative_strength
+# potřebuje, aby existoval řádek t - window (frame.shift(window) je jinak NaN).
+# Změřeno skriptem nad panelem o přesně `window` řádcích: sma, ema, rolling_high,
+# rolling_low, dollar_volume_ma a atr s přesně window řádky hodnotu vrátí,
+# rsi a relative_strength ne.
+_EXTRA_HISTORY_ROWS: dict[str, int] = {
+    "rsi": 1,
+    "relative_strength": 1,
+}
 
 
 class FeatureSet:
@@ -52,10 +71,14 @@ class FeatureSet:
         if not isinstance(window, int):
             return
 
+        if window <= 0:
+            raise InvalidWindowError(request.feature_id, window)
+
+        required = window + _EXTRA_HISTORY_ROWS.get(request.name, 0)
         available = len(self._panel.adj_close.index)
 
-        if window > available:
-            raise InsufficientHistoryError(request.feature_id, window, available)
+        if required > available:
+            raise InsufficientHistoryError(request.feature_id, required, available)
 
     def _evaluate(self, request: FeatureRequest) -> pd.DataFrame:
         function = REGISTRY[request.name]

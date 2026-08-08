@@ -70,7 +70,12 @@ def test_atr_reseeds_after_gap() -> None:
 
 
 def test_rsi_reseeds_after_gap() -> None:
-    """Totéž pro RSI — po mezeře je potřeba window platných změn za sebou."""
+    """Totéž pro RSI — po mezeře je potřeba window platných změn za sebou.
+
+    Nestačí ověřit, že mezera vyrobí NaN — je potřeba i to, že RSI se z ní
+    vzpamatuje a jakmile má zase window platných změn za sebou, začne znovu
+    vydávat hodnoty (protějšek u ATR to už ověřuje).
+    """
     close = _frame([10.0, 11.0, 10.5, 12.0, float("nan"), 12.0, 13.0, 12.5, 13.5])
 
     result = rsi(close, window=3)["A"]
@@ -78,6 +83,7 @@ def test_rsi_reseeds_after_gap() -> None:
     assert not pd.isna(result.iloc[3])
     assert pd.isna(result.iloc[4])
     assert pd.isna(result.iloc[5])
+    assert not pd.isna(result.iloc[8])
 
 
 def test_rsi_monotonic_series_is_hundred() -> None:

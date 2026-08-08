@@ -71,3 +71,18 @@ class UnknownInputError(ForxError):
     def __init__(self, name: str, allowed: Iterable[str]) -> None:
         super().__init__(f"Neznámý vstup: {name}. Povolené: {', '.join(sorted(allowed))}")
         self.name = name
+        self.allowed = tuple(sorted(allowed))
+
+
+class InvalidWindowError(ForxError):
+    """window <= 0 nemá smysl u žádného indikátoru.
+
+    U ema by dal alpha = 2/(window+1) mimo platný rozsah (0, 1] a u ostatních
+    featur by rolling(window=...) buď spadl, nebo tiše vrátil samé NaN — obojí
+    má být hlasitá chyba dřív, než se vůbec začne počítat.
+    """
+
+    def __init__(self, feature_id: str, window: int) -> None:
+        super().__init__(f"Featura {feature_id} má neplatné okno {window}, window musí být kladné celé číslo.")
+        self.feature_id = feature_id
+        self.window = window

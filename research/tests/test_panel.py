@@ -90,6 +90,20 @@ def test_load_panel_rejects_missing_year(tmp_path: Path) -> None:
         load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
 
 
+def test_load_panel_rejects_year_missing_from_manifest(tmp_path: Path) -> None:
+    """SnapshotExporter nemaže staré roční soubory — manifest je jediná autorita
+    o tom, které roky snapshot skutečně pokrývá. Soubor na disku bez záznamu
+    v manifestu je stejný druh problému jako soubor, který chybí úplně."""
+    spec = write_snapshot(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["years"] = [year for year in payload["years"] if year != spec.dates[0].year]
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(IncompleteSnapshotError):
+        load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
 def test_frame_rejects_unknown_input(tmp_path: Path) -> None:
     spec = write_snapshot(tmp_path)
 

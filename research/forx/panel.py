@@ -72,7 +72,7 @@ def load_panel(
     Ověření verze adjustmentu proběhne první — dál by šlo počítat nad daty, která
     už neodpovídají tomu, jak je Python interpretuje.
     """
-    _verify_manifest(parquet_root)
+    _verify_manifest(parquet_root, start, end)
 
     columns = sorted(instrument_ids)
     trading_days = _trading_days(parquet_root, start, end)
@@ -94,12 +94,23 @@ def load_panel(
     )
 
 
-def _verify_manifest(parquet_root: Path) -> None:
+def _verify_manifest(parquet_root: Path, start: date, end: date) -> None:
     payload = json.loads((parquet_root / "manifest.json").read_text(encoding="utf-8"))
     found = int(payload["adjustment_logic_version"])
 
     if found != EXPECTED_ADJUSTMENT_LOGIC_VERSION:
         raise AdjustmentVersionMismatchError(EXPECTED_ADJUSTMENT_LOGIC_VERSION, found)
+
+    # SnapshotExporter zapisuje jen požadované roky a staré nemaže. Bez tohohle
+    # ověření by rok, který na disku zůstal ze starší verze exportu, ale
+    # manifest o něm mlčí, prošel jako platný a smíchal by data dvou exportů.
+    known_years = {int(year) for year in payload["years"]}
+
+    for year in range(start.year, end.year + 1):
+        if year not in known_years:
+            path = parquet_root / "daily" / f"year={year}" / "part.parquet"
+
+            raise IncompleteSnapshotError(year, str(path))
 
 
 def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeIndex:

@@ -48,7 +48,19 @@ def _wilder_smooth(values: np.ndarray, window: int) -> np.ndarray:
 
 
 def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, window: int) -> pd.DataFrame:
-    """TR_t = max(H_t - L_t, |H_t - C_{t-1}|, |L_t - C_{t-1}|), pak Wilder."""
+    """TR_t = max(H_t - L_t, |H_t - C_{t-1}|, |L_t - C_{t-1}|), pak Wilder.
+
+    První TR série i první TR po mezeře v datech používá jen H − L, protože
+    C_{t-1} není k dispozici (posunutý sloupec dá na tom místě NaN a nanmax
+    ho z výpočtu vynechá). To je standardní konvence, ne degradace: bar hned
+    po mezeře je fakticky začátek nové série.
+
+    Tím je ATR nekonzistentní s RSI, který stejnou situaci řeší jinak: RSI
+    change přes mezeru zahodí úplně (NaN) a rekurenci na tom místě naseeduje
+    až znovu, protože změna ceny bez dvou platných cen neexistuje. U ATR
+    naopak H − L samotného baru smysl dává i bez předchozí ceny, takže
+    hodnota nezmizí — jen ztratí složku závislou na C_{t-1}.
+    """
     result = pd.DataFrame(np.nan, index=close.index, columns=close.columns, dtype="float64")
 
     for column in close.columns:
