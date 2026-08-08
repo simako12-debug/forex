@@ -1414,6 +1414,7 @@ git commit -m "feat: FeatureRequest s deterministickým feature_id"
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from forx.errors import AdjustmentVersionMismatchError, IncompleteSnapshotError, UnknownInputError
@@ -1482,6 +1483,27 @@ def test_load_panel_rejects_wrong_adjustment_version(tmp_path: Path) -> None:
 
     with pytest.raises(AdjustmentVersionMismatchError):
         load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_load_panel_masks_bars_outside_listing_window(tmp_path: Path) -> None:
+    """Bar po delistingu se nesmí dostat do panelu jako platná hodnota.
+
+    Bez maskování by missing_reasons ohlásilo PRESENT pro buňku, o které
+    listed_mask tvrdí, že instrument tehdy neexistoval.
+    """
+    spec = write_snapshot(tmp_path)
+    part = next((tmp_path / "daily").glob("year=*/part.parquet"))
+    bars = pd.read_parquet(part)
+
+    after_delisting = bars[bars["instrument_id"] == spec.delisted_id].iloc[-1].copy()
+    after_delisting["date"] = pd.Timestamp(spec.dates[-1])
+    pd.concat([bars, after_delisting.to_frame().T], ignore_index=True).to_parquet(part, index=False)
+
+    panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+    assert bool(panel.listed_mask[spec.delisted_id].iloc[-1]) is False
+    assert pd.isna(panel.adj_close[spec.delisted_id].iloc[-1])
+    assert pd.isna(panel.close[spec.delisted_id].iloc[-1])
 
 
 def test_load_panel_rejects_missing_year(tmp_path: Path) -> None:
@@ -1598,10 +1620,17 @@ def load_panel(
     frames = {
         name: _pivot(bars, name, trading_days, columns) for name in _BAR_COLUMNS
     }
+    listed_mask = _listed_mask(parquet_root, trading_days, columns)
+
+    # listed_mask je autorita. Bar mimo okno listingu je datová chyba podprojektu 1,
+    # ne signál — daily_bars se při ingestu proti listed_at/delisted_at nefiltrují,
+    # takže vadný vendor dump takový řádek propustí. Bez maskování by missing_reasons
+    # hlásilo PRESENT pro buňku, o které listed_mask tvrdí, že instrument neexistoval.
+    frames = {name: frame.where(listed_mask) for name, frame in frames.items()}
 
     return BarPanel(
         **frames,
-        listed_mask=_listed_mask(parquet_root, trading_days, columns),
+        listed_mask=listed_mask,
         universe_mask=_universe_mask(parquet_root, trading_days, columns, universe),
     )
 
@@ -1706,7 +1735,7 @@ Do `research/forx/__init__.py` přidat `from forx.panel import BarPanel, load_pa
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_panel.py -q'`
-Expected: PASS, 9 testů
+Expected: PASS, 10 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
