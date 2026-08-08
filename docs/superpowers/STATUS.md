@@ -136,6 +136,38 @@ U podprojektů 2–7 je změna návrhových rozhodnutí ještě zdarma. Nejcitli
 - nativní bracket příkazy u brokera místo syntetických stopů
 - žádný trailing stop ve v1
 
+## Follow-up z podprojektu 2
+
+Závěrečné review nad celou větví protřídilo 25 odložených nálezů. Nic z toho neblokovalo sloučení, ale tohle jsou položky, které někdo někdy dodělat má. Řazeno podle toho, jak moc to bolí.
+
+**Kontrakty a švy**
+
+- **`row_counts['daily_bars']` v `SnapshotExporter` počítá celou tabulku**, ne jen vyexportované roky, a `market-data:export-snapshot` to vypisuje jako počet barů za zadaný rozsah. Číslo je proto zavádějící a Python ho ignoruje. Opravit u producenta, ne u konzumenta.
+- **Neznámý instrument nebo neznámé univerzum v `load_panel` selhávají tiše** — instrument chybějící v `instruments.parquet` dostane masku samých `False` a `missing_reasons` ho ohlásí jako `NOT_LISTED`, i když je to jen díra v metadatech. Neznámé jméno nebo verze univerza dá `universe_mask` samých `False`, takže každý `cs_rank` vyjde `NaN`. Zbytek vrstvy je záměrně hlasitý; tyhle tři cesty ne.
+- **`SnapshotManifest::fromArray()` nemá produkčního volajícího.** PHP manifest nikdy nečte, Python si JSON parsuje sám. Buď zrušit, nebo použít.
+
+**Údržba, která praskne u osmého indikátoru**
+
+- **`_MULTI_INPUT_FEATURES`, `_CROSS_SECTIONAL_FEATURES`, `_BENCHMARK_FEATURES` a `_EXTRA_HISTORY_ROWS` v `compute.py` jsou čtyři ručně udržované mapy** oddělené od `REGISTRY`. Přidání indikátoru s jinou signaturou nebo jinou potřebou historie vyžaduje zásah do souboru, který není `features/`. Až přijde osmý, vtáhnout arity a potřebu historie do registru.
+- **Zaparkovaný nález: `cs_rank` rekurze nemá cycle guard.** Cyklus dnes nejde zkonstruovat, protože `feature_id` vnořeně obsahuje celý zdrojový řetězec — guard by byl kód proti nemožnému stavu. Poznámka je u dispatch množin. **Přehodnotit, pokud se `feature_id` změní na hash nebo zkrácenou reprezentaci.**
+
+**Testovací dluh**
+
+- `window` u indikátorů se validuje až v `compute()`, ne v samotných funkcích — přímé volání `sma(frame, window=0)` projde.
+- Chybí test na instrument neexistující v `instruments.parquet` a na úplně prázdnou sadu barů; větev `bars.empty` v `_pivot` je dnes nedosažitelná.
+- Chybí test na řadu kratší než okno a na jednořádkový frame.
+- `testExportEmptyDatabase` ověřuje jen `instruments`, ne všechny tři tabulky. `decodeCounts()` neověřuje tvar JSONu — `{}` projde a selže až výš v řetězci.
+- Tři kauzalitní testy opakují stejný scaffold, šlo by je parametrizovat.
+- `ExportSnapshotCommand` nemá test; `range()` při `--to-year < --from-year` tiše exportuje sestupně.
+
+**Invarianty, které drží jen próza**
+
+Z dvanácti kritických invariantů plánu je osm plně zafixovaných testem. Zbytek:
+
+- **Manifest se zapisuje jako poslední** — `SnapshotExporter::export()` to dělá správně, ale nic nespadne, když někdo `File::put` přesune nad export metadat. Test by nechal `MetadataExporter` vyhodit výjimku a ověřil, že manifest nevznikl.
+- **Panel se staví jen nad zadanými instrumenty** — `test_load_panel_shape` předává všechny čtyři z fixture, takže by prošel i implementaci, která `instrument_ids` ignoruje. Chybí test s podmnožinou.
+- **`dollar_volume_ma` počítá nad surovými hodnotami** — zafixované je jen `panel.frame("dollar_volume")`. Nic nehlídá, že *požadavek* na `dollar_volume_ma` ten vstup skutečně použije: `FeatureRequest(name="dollar_volume_ma", params={"window": 20})` s výchozím vstupem spočítá klouzavý průměr `adj_close` a vrátí věrohodné číslo. **Tohle je z celého seznamu nejpravděpodobnější past pro nového člověka.**
+
 ## Známé mezery a vědomé odchylky
 
 **Plán 1 nepokrývá ingest intradenních 5min barů.** Tabulka `intraday_bars` a její partitions vznikají v Tasku 5, ale žádný task do nich nenalévá data. Důvod: intradenní historie pro 500 nejlikvidnějších tickerů je samostatný nákup a samostatný formát, a její adaptér nemá smysl psát dřív, než dump existuje. Patří do navazujícího plánu. Kritérium hotovosti specifikace je splněné (je formulované nad denními bary), ale rozsah specifikace intradenní data zmiňuje.
