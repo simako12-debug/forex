@@ -6,7 +6,9 @@ namespace App\Providers;
 
 use App\MarketData\Calendar\AlpacaCalendarSource;
 use App\MarketData\Contracts\ValidationRule;
+use App\MarketData\Export\MetadataExporter;
 use App\MarketData\Export\ParquetExporter;
+use App\MarketData\Export\SnapshotExporter;
 use App\MarketData\Validation\Rules\BarOnClosedDayRule;
 use App\MarketData\Validation\Rules\CrossSourceDivergenceRule;
 use App\MarketData\Validation\Rules\DuplicateBarRule;
@@ -40,6 +42,19 @@ class AppServiceProvider extends ServiceProvider
             scriptPath: Config::string('market-data.export_script'),
             pythonBinary: Config::string('market-data.python_binary'),
             dsn: $this->postgresDsn(),
+        ));
+
+        $this->app->bind(MetadataExporter::class, fn (): MetadataExporter => new MetadataExporter(
+            sharedPath: Config::string('market-data.shared_path'),
+            scriptPath: Config::string('market-data.metadata_script'),
+            pythonBinary: Config::string('market-data.python_binary'),
+            dsn: $this->postgresDsn(),
+        ));
+
+        $this->app->bind(SnapshotExporter::class, fn (): SnapshotExporter => new SnapshotExporter(
+            bars: $this->app->make(ParquetExporter::class),
+            metadata: $this->app->make(MetadataExporter::class),
+            sharedPath: Config::string('market-data.shared_path'),
         ));
 
         // Seznam validačních pravidel musí existovat na jednom místě, aby

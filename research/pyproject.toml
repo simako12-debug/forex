@@ -1,17 +1,39 @@
 [project]
 name = "forx-research"
-version = "0.1.0"
-description = "Python vrstva pro Forx — export Parquetu a kontraktní testy schématu"
+version = "0.2.0"
+description = "Python vrstva pro Forx — indikátory, export Parquetu a kontraktní testy schématu"
 requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.1",
     "pyarrow>=17",
     "pandas>=2.2",
+    "numpy>=2.0",
     "psycopg[binary]>=3.2",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3"]
+dev = ["pytest>=8.3", "ruff>=0.6", "mypy>=1.11", "pandas-stubs>=2.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["forx", "forx.features"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RET"]
+# N818 se nepotlačuje — výjimky končí na Error, viz forx/errors.py.
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["forx"]

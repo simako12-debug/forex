@@ -27,6 +27,7 @@ Platí pro každý task, i když ho task nezmiňuje.
 - **Žádná síť v testech, žádná závislost na reálném exportu.** Testy si Parquet fixture vygenerují samy.
 - **Žádné `assert` v produkčním kódu** jako kontrola vstupu — chyba vstupu je vlastní výjimka s vysvětlením.
 - Všechny indikátory jsou **kauzální**: hodnota k datu *D* používá jen data s datem ≤ *D*. Žádné centrované okno, žádný `shift(-1)`, žádná interpolace přes budoucí hodnoty.
+- **Mezera v datech ruší stav rekurze.** Rekurzivní indikátory (`ema`, `atr`, `rsi`) se po chybějícím baru musí naseedovat znovu a do té doby vracet `NaN` — stejně jako `sma` přes `min_periods`. Přenášet poslední hodnotu přes mezeru je tichá imputace: indikátor by tvrdil, že se cena nehnula, i když o ní nic nevíme.
 - Peněžní a cenové porovnání v testech přes `pytest.approx` s explicitní tolerancí, nikdy `==` nad floaty.
 - Příkazy se spouštějí z rootu projektu přes kontejner:
   `docker compose exec app <php příkaz>`, `docker compose exec research sh -c 'cd /app/research && <python příkaz>'`.
@@ -54,7 +55,7 @@ research/export_metadata.py                       DuckDB skript pro metadatové 
 # Etapa 2b–2d — Python, indikátorová vrstva
 research/pyproject.toml                           balíček forx, ruff, mypy, pytest
 research/forx/__init__.py                         veřejné API znovu-exportované
-research/forx/errors.py                           AdjustmentVersionMismatch, InsufficientHistory, UnknownFeature
+research/forx/errors.py                           AdjustmentVersionMismatchError, InsufficientHistoryError, UnknownFeatureError
 research/forx/request.py                          FeatureRequest + feature_id
 research/forx/panel.py                            BarPanel, load_panel, listed_mask
 research/forx/missing.py                          MissingReason a jeho odvození
@@ -832,7 +833,7 @@ Bez fixture nejde napsat jediný test dalších tasků, takže patří sem.
 **Interfaces:**
 - Consumes: snapshot z Tasku 3 (tvar složky)
 - Produces:
-  - `forx.errors.AdjustmentVersionMismatch`, `forx.errors.InsufficientHistory`, `forx.errors.UnknownFeature` — všechny dědí z `forx.errors.ForxError`
+  - `forx.errors.AdjustmentVersionMismatchError`, `forx.errors.InsufficientHistoryError`, `forx.errors.UnknownFeatureError` — všechny dědí z `forx.errors.ForxError`
   - `tests.fixtures.write_snapshot(root: Path) -> SnapshotSpec` — zapíše kanonický snapshot a vrátí popis toho, co v něm je
   - `tests.fixtures.SnapshotSpec` — `@dataclass(frozen=True)` s poli `dates`, `instrument_ids`, `delisted_id`, `latecomer_id`, `gap_id`, `gap_dates`, `benchmark_id`
 
@@ -873,6 +874,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RET"]
+# N818 se nepotlačuje — výjimky končí na Error, viz forx/errors.py.
 
 [tool.mypy]
 python_version = "3.13"
@@ -906,12 +908,14 @@ Každý z nich je hlasité odmítnutí, ne tiché NaN. Specifikace to vyžaduje
 u warm-upu i u nesouladu verze adjustmentu.
 """
 
+from collections.abc import Iterable
+
 
 class ForxError(Exception):
     """Základ pro všechny chyby této vrstvy."""
 
 
-class AdjustmentVersionMismatch(ForxError):
+class AdjustmentVersionMismatchError(ForxError):
     """Snapshot byl vyexportován jinou verzí adjustment logiky, než Python očekává."""
 
     def __init__(self, expected: int, found: int) -> None:
@@ -923,7 +927,7 @@ class AdjustmentVersionMismatch(ForxError):
         self.found = found
 
 
-class InsufficientHistory(ForxError):
+class InsufficientHistoryError(ForxError):
     """Featura potřebuje delší warm-up, než kolik je v panelu dní."""
 
     def __init__(self, feature_id: str, required: int, available: int) -> None:
@@ -935,12 +939,45 @@ class InsufficientHistory(ForxError):
         self.available = available
 
 
-class UnknownFeature(ForxError):
+class UnknownFeatureError(ForxError):
     """Požadavek se odkazuje na featuru, která není v registru."""
 
     def __init__(self, name: str) -> None:
         super().__init__(f"Neznámá featura: {name}")
         self.name = name
+
+
+class UnknownInputError(ForxError):
+    """Požadavek se odkazuje na vstup, který panel nezná."""
+
+    def __init__(self, name: str, allowed: Iterable[str]) -> None:
+        super().__init__(f"Neznámý vstup: {name}. Povolené: {', '.join(sorted(allowed))}")
+        self.name = name
+
+
+class UnknownBenchmarkError(ForxError):
+    """Benchmark pro relativní sílu není mezi sloupci panelu."""
+
+    def __init__(self, benchmark_id: str) -> None:
+        super().__init__(
+            f"Benchmark {benchmark_id} není v panelu. Panel se musí stavět včetně něj, "
+            "i když není členem univerza."
+        )
+        self.benchmark_id = benchmark_id
+
+
+class IncompleteSnapshotError(ForxError):
+    """Snapshot postrádá soubor s bary pro rok, který spadá do požadovaného období.
+
+    Tiché přeskočení by vyrobilo oblast samých NaN, kterou downstream nerozezná
+    od warm-upu ani od delistingu — přesně to, čemu má rozlišení tří druhů
+    chybějící hodnoty zabránit.
+    """
+
+    def __init__(self, year: int, path: str) -> None:
+        super().__init__(f"Snapshot neobsahuje bary pro rok {year} (očekáváno v {path}).")
+        self.year = year
+        self.path = path
 ```
 
 `research/forx/__init__.py`:
@@ -948,9 +985,25 @@ class UnknownFeature(ForxError):
 ```python
 """Indikátorová vrstva Forx."""
 
-from forx.errors import AdjustmentVersionMismatch, ForxError, InsufficientHistory, UnknownFeature
+from forx.errors import (
+    AdjustmentVersionMismatchError,
+    ForxError,
+    IncompleteSnapshotError,
+    InsufficientHistoryError,
+    UnknownBenchmarkError,
+    UnknownFeatureError,
+    UnknownInputError,
+)
 
-__all__ = ["AdjustmentVersionMismatch", "ForxError", "InsufficientHistory", "UnknownFeature"]
+__all__ = [
+    "AdjustmentVersionMismatchError",
+    "ForxError",
+    "IncompleteSnapshotError",
+    "InsufficientHistoryError",
+    "UnknownBenchmarkError",
+    "UnknownFeatureError",
+    "UnknownInputError",
+]
 ```
 
 - [ ] **Step 4: Napsat failující test fixture**
@@ -1347,7 +1400,7 @@ git commit -m "feat: FeatureRequest s deterministickým feature_id"
 - Test: `research/tests/test_panel.py`
 
 **Interfaces:**
-- Consumes: `forx.errors.AdjustmentVersionMismatch` (Task 4), fixture z Tasku 4
+- Consumes: `forx.errors.AdjustmentVersionMismatchError` (Task 4), fixture z Tasku 4
 - Produces:
   - `forx.panel.EXPECTED_ADJUSTMENT_LOGIC_VERSION: int` — hodnota `1`
   - `forx.panel.BarPanel` — `@dataclass(frozen=True)` s `adj_open`, `adj_high`, `adj_low`, `adj_close`, `adj_volume`, `close`, `volume`, `listed_mask`, `universe_mask`, všechno `pd.DataFrame` se stejným indexem i sloupci
@@ -1361,9 +1414,11 @@ git commit -m "feat: FeatureRequest s deterministickým feature_id"
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
-from forx.errors import AdjustmentVersionMismatch
+from forx.errors import AdjustmentVersionMismatchError, IncompleteSnapshotError, UnknownInputError
+from forx.request import VALID_INPUTS
 from forx.panel import load_panel
 from tests.fixtures import write_snapshot
 
@@ -1426,8 +1481,48 @@ def test_load_panel_rejects_wrong_adjustment_version(tmp_path: Path) -> None:
     payload["adjustment_logic_version"] = 99
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(AdjustmentVersionMismatch):
+    with pytest.raises(AdjustmentVersionMismatchError):
         load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_load_panel_masks_bars_outside_listing_window(tmp_path: Path) -> None:
+    """Bar po delistingu se nesmí dostat do panelu jako platná hodnota.
+
+    Bez maskování by missing_reasons ohlásilo PRESENT pro buňku, o které
+    listed_mask tvrdí, že instrument tehdy neexistoval.
+    """
+    spec = write_snapshot(tmp_path)
+    part = next((tmp_path / "daily").glob("year=*/part.parquet"))
+    bars = pd.read_parquet(part)
+
+    after_delisting = bars[bars["instrument_id"] == spec.delisted_id].iloc[-1].copy()
+    after_delisting["date"] = pd.Timestamp(spec.dates[-1])
+    pd.concat([bars, after_delisting.to_frame().T], ignore_index=True).to_parquet(part, index=False)
+
+    panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+    assert bool(panel.listed_mask[spec.delisted_id].iloc[-1]) is False
+    assert pd.isna(panel.adj_close[spec.delisted_id].iloc[-1])
+    assert pd.isna(panel.close[spec.delisted_id].iloc[-1])
+
+
+def test_load_panel_rejects_missing_year(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    for part in (tmp_path / "daily").glob("year=*/part.parquet"):
+        part.unlink()
+
+    with pytest.raises(IncompleteSnapshotError):
+        load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_frame_rejects_unknown_input(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+    with pytest.raises(UnknownInputError):
+        panel.frame("neexistujici_vstup")
 
 
 def test_load_panel_universe_mask_follows_membership(tmp_path: Path) -> None:
@@ -1465,7 +1560,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from forx.errors import AdjustmentVersionMismatch
+from forx.errors import AdjustmentVersionMismatchError
 
 EXPECTED_ADJUSTMENT_LOGIC_VERSION = 1
 
@@ -1495,7 +1590,14 @@ class BarPanel:
     universe_mask: pd.DataFrame
 
     def frame(self, name: str) -> pd.DataFrame:
-        """Vrátí matici podle jména vstupu z FeatureRequest.input."""
+        """Vrátí matici podle jména vstupu z FeatureRequest.input.
+
+        Neznámé jméno je hlasitá chyba, ne AttributeError o kus dál. Seznam
+        povolených vstupů žije v jednom místě jako VALID_INPUTS.
+        """
+        if name not in VALID_INPUTS:
+            raise UnknownInputError(name, VALID_INPUTS)
+
         if name == "dollar_volume":
             return self.close * self.volume
 
@@ -1518,10 +1620,17 @@ def load_panel(
     frames = {
         name: _pivot(bars, name, trading_days, columns) for name in _BAR_COLUMNS
     }
+    listed_mask = _listed_mask(parquet_root, trading_days, columns)
+
+    # listed_mask je autorita. Bar mimo okno listingu je datová chyba podprojektu 1,
+    # ne signál — daily_bars se při ingestu proti listed_at/delisted_at nefiltrují,
+    # takže vadný vendor dump takový řádek propustí. Bez maskování by missing_reasons
+    # hlásilo PRESENT pro buňku, o které listed_mask tvrdí, že instrument neexistoval.
+    frames = {name: frame.where(listed_mask) for name, frame in frames.items()}
 
     return BarPanel(
         **frames,
-        listed_mask=_listed_mask(parquet_root, trading_days, columns),
+        listed_mask=listed_mask,
         universe_mask=_universe_mask(parquet_root, trading_days, columns, universe),
     )
 
@@ -1531,7 +1640,7 @@ def _verify_manifest(parquet_root: Path) -> None:
     found = int(payload["adjustment_logic_version"])
 
     if found != EXPECTED_ADJUSTMENT_LOGIC_VERSION:
-        raise AdjustmentVersionMismatch(EXPECTED_ADJUSTMENT_LOGIC_VERSION, found)
+        raise AdjustmentVersionMismatchError(EXPECTED_ADJUSTMENT_LOGIC_VERSION, found)
 
 
 def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeIndex:
@@ -1544,12 +1653,17 @@ def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeInde
 
 
 def _read_bars(parquet_root: Path, start: date, end: date, columns: list[str]) -> pd.DataFrame:
-    years = range(start.year, end.year + 1)
-    parts = [
-        pd.read_parquet(parquet_root / "daily" / f"year={year}" / "part.parquet")
-        for year in years
-        if (parquet_root / "daily" / f"year={year}" / "part.parquet").exists()
-    ]
+    parts = []
+
+    for year in range(start.year, end.year + 1):
+        path = parquet_root / "daily" / f"year={year}" / "part.parquet"
+
+        # Chybějící rok je chyba, ne prázdno. Tiché přeskočení by vyrobilo oblast
+        # samých NaN nerozeznatelnou od warm-upu nebo delistingu.
+        if not path.exists():
+            raise IncompleteSnapshotError(year, str(path))
+
+        parts.append(pd.read_parquet(path))
 
     if not parts:
         return pd.DataFrame(columns=["instrument_id", "date", *_BAR_COLUMNS])
@@ -1621,7 +1735,7 @@ Do `research/forx/__init__.py` přidat `from forx.panel import BarPanel, load_pa
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_panel.py -q'`
-Expected: PASS, 7 testů
+Expected: PASS, 10 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
@@ -1690,6 +1804,24 @@ def test_ema_recurrence_matches_formula() -> None:
     assert result.iloc[3] == pytest.approx(expected)
 
 
+def test_sma_and_ema_agree_on_interior_gap() -> None:
+    """Mezera uprostřed řady musí obě funkce umlčet na stejně dlouho.
+
+    Kdyby EMA přenášela poslední hodnotu, vydala by hned za mezerou číslo,
+    zatímco SMA je ještě NaN — tichá imputace, kterou plán zakazuje.
+    """
+    gapped = _frame([1.0, 2.0, 3.0, float("nan"), 5.0, 6.0, 7.0])
+
+    sma_result = sma(gapped, window=3)["A"]
+    ema_result = ema(gapped, window=3)["A"]
+
+    assert pd.isna(sma_result.iloc[3]) and pd.isna(ema_result.iloc[3])
+    assert pd.isna(sma_result.iloc[4]) and pd.isna(ema_result.iloc[4])
+    assert pd.isna(sma_result.iloc[5]) and pd.isna(ema_result.iloc[5])
+    assert not pd.isna(sma_result.iloc[6])
+    assert not pd.isna(ema_result.iloc[6])
+
+
 def test_sma_ignores_leading_nan_as_warmup() -> None:
     result = sma(_frame([float("nan"), 2.0, 3.0, 4.0]), window=3)["A"]
 
@@ -1743,15 +1875,18 @@ def ema(frame: pd.DataFrame, window: int) -> pd.DataFrame:
         previous = np.nan
 
         for position in range(len(values)):
+            # Mezera ruší stav rekurze. Seed z rolling().mean() je po mezeře NaN,
+            # dokud zase nebude window platných hodnot za sebou — tím se EMA
+            # naseeduje znovu a chová se stejně jako SMA.
+            if np.isnan(values[position]):
+                previous = np.nan
+
+                continue
+
             if np.isnan(previous):
                 if not np.isnan(seeds[position]):
                     previous = seeds[position]
                     output[position] = previous
-
-                continue
-
-            if np.isnan(values[position]):
-                output[position] = previous
 
                 continue
 
@@ -1791,7 +1926,7 @@ __all__ = ["REGISTRY", "FeatureFn", "ema", "sma"]
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_moving.py -q'`
-Expected: PASS, 4 testy
+Expected: PASS, 5 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
@@ -1835,21 +1970,32 @@ def _frame(values: list[float]) -> pd.DataFrame:
 
 
 def test_atr_golden_wilder_recurrence() -> None:
-    high = _frame([10.0, 11.0, 12.0, 11.0])
+    """První dva TR se MUSÍ lišit, jinak test nerozliší Wilder od naivní EMA.
+
+    Kdyby TR_0 == TR_1, seed jako průměr prvních n hodnot a seed jako první
+    hodnota řady by daly totéž a od té chvíle jsou obě rekurence shodné — test
+    by prošel i implementaci s alpha = 1/n seedovanou první hodnotou.
+    """
+    high = _frame([12.0, 11.0, 12.0, 11.0])
     low = _frame([8.0, 10.0, 11.0, 9.0])
     close = _frame([9.0, 10.8, 11.5, 9.5])
 
-    # TR_0 = H-L = 2.0 (bez předchozího close)
-    # TR_1 = max(1.0, |11-9|=2.0, |10-9|=1.0)      = 2.0
+    # TR_0 = H-L = 4.0 (bez předchozího close)
+    # TR_1 = max(1.0, |11-9|=2.0, |10-9|=1.0)       = 2.0
     # TR_2 = max(1.0, |12-10.8|=1.2, |11-10.8|=0.2) = 1.2
     # TR_3 = max(2.0, |11-11.5|=0.5, |9-11.5|=2.5)  = 2.5
-    # ATR_2 = (2.0 + 2.0 + 1.2) / 3                 = 1.7333333
-    # ATR_3 = (1.7333333 * 2 + 2.5) / 3             = 1.9888889
+    # ATR_2 = (4.0 + 2.0 + 1.2) / 3                 = 2.4
+    # ATR_3 = (2.4 * 2 + 2.5) / 3                   = 2.4333333
+    #
+    # Pro srovnání, kdyby se seedovalo první hodnotou (naivní EMA, alpha = 1/3):
+    #   EMA_2 = (1/3)*1.2 + (2/3)*((1/3)*2.0 + (2/3)*4.0) = 2.6222222
+    # a jednoduchý klouzavý průměr by dal ATR_3 = mean(2.0, 1.2, 2.5) = 1.9.
+    # Obě čísla se od golden hodnot liší, takže test konvenci skutečně drží.
     result = atr(high, low, close, window=3)["A"]
 
     assert pd.isna(result.iloc[1])
-    assert result.iloc[2] == pytest.approx(1.7333333, abs=1e-6)
-    assert result.iloc[3] == pytest.approx(1.9888889, abs=1e-6)
+    assert result.iloc[2] == pytest.approx(2.4, abs=1e-6)
+    assert result.iloc[3] == pytest.approx(2.4333333, abs=1e-6)
 
 
 def test_rsi_golden_wilder_recurrence() -> None:
@@ -1869,6 +2015,32 @@ def test_rsi_golden_wilder_recurrence() -> None:
     assert result.iloc[4] == pytest.approx(66.666667, abs=1e-5)
 
 
+def test_atr_reseeds_after_gap() -> None:
+    """Chybějící bar ruší stav Wilderovy rekurence, stejně jako u SMA a EMA."""
+    high = _frame([10.0, 11.0, 12.0, float("nan"), 12.0, 13.0, 14.0])
+    low = _frame([8.0, 10.0, 11.0, float("nan"), 10.0, 11.0, 12.0])
+    close = _frame([9.0, 10.8, 11.5, float("nan"), 11.0, 12.0, 13.0])
+
+    result = atr(high, low, close, window=3)["A"]
+
+    assert not pd.isna(result.iloc[2])
+    assert pd.isna(result.iloc[3])
+    assert pd.isna(result.iloc[4])
+    assert pd.isna(result.iloc[5])
+    assert not pd.isna(result.iloc[6])
+
+
+def test_rsi_reseeds_after_gap() -> None:
+    """Totéž pro RSI — po mezeře je potřeba window platných změn za sebou."""
+    close = _frame([10.0, 11.0, 10.5, 12.0, float("nan"), 12.0, 13.0, 12.5, 13.5])
+
+    result = rsi(close, window=3)["A"]
+
+    assert not pd.isna(result.iloc[3])
+    assert pd.isna(result.iloc[4])
+    assert pd.isna(result.iloc[5])
+
+
 def test_rsi_monotonic_series_is_hundred() -> None:
     result = rsi(_frame([1.0, 2.0, 3.0, 4.0, 5.0]), window=3)["A"]
 
@@ -1879,7 +2051,7 @@ def test_rsi_monotonic_series_is_hundred() -> None:
 def test_rsi_zero_loss_does_not_divide_by_zero() -> None:
     result = rsi(_frame([1.0, 2.0, 3.0, 4.0]), window=3)["A"]
 
-    assert not result.iloc[3] != result.iloc[3]  # není NaN
+    assert not pd.isna(result.iloc[3])
     assert result.iloc[3] == pytest.approx(100.0)
 ```
 
@@ -1906,18 +2078,37 @@ import pandas as pd
 
 
 def _wilder_smooth(values: np.ndarray, window: int) -> np.ndarray:
-    """ATR_n = mean(x_1..x_n); ATR_t = (ATR_{t-1} * (n-1) + x_t) / n."""
+    """ATR_n = mean(x_1..x_n); ATR_t = (ATR_{t-1} * (n-1) + x_t) / n.
+
+    Mezera v datech ruší stav rekurze: po chybějící hodnotě se vyhlazování musí
+    naseedovat znovu z window platných hodnot za sebou, stejně jako SMA. Přenášet
+    poslední hodnotu přes mezeru by byla tichá imputace.
+    """
     output = np.full(len(values), np.nan)
+    previous = np.nan
+    run = 0
 
-    if len(values) < window:
-        return output
+    for position in range(len(values)):
+        value = values[position]
 
-    seed = np.mean(values[:window])
-    output[window - 1] = seed
-    previous = seed
+        if np.isnan(value):
+            previous = np.nan
+            run = 0
 
-    for position in range(window, len(values)):
-        previous = (previous * (window - 1) + values[position]) / window
+            continue
+
+        run += 1
+
+        if np.isnan(previous):
+            if run < window:
+                continue
+
+            previous = float(np.mean(values[position - window + 1 : position + 1]))
+            output[position] = previous
+
+            continue
+
+        previous = (previous * (window - 1) + value) / window
         output[position] = previous
 
     return output
@@ -1933,16 +2124,20 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, window: int)
         close_values = close[column].to_numpy(dtype="float64")
 
         previous_close = np.concatenate(([np.nan], close_values[:-1]))
-        true_range = np.nanmax(
-            np.vstack(
-                [
-                    high_values - low_values,
-                    np.abs(high_values - previous_close),
-                    np.abs(low_values - previous_close),
-                ]
-            ),
-            axis=0,
+        candidates = np.vstack(
+            [
+                high_values - low_values,
+                np.abs(high_values - previous_close),
+                np.abs(low_values - previous_close),
+            ]
         )
+
+        # nanmax nad sloupcem samých NaN vypíše RuntimeWarning a testový výstup má
+        # být čistý. Chybějící bar (H i L jsou NaN) proto do výpočtu nevstupuje;
+        # jeho TR zůstane NaN a _wilder_smooth si na něm zruší stav rekurze.
+        has_bar = ~np.isnan(high_values) & ~np.isnan(low_values)
+        true_range = np.full(len(high_values), np.nan)
+        true_range[has_bar] = np.nanmax(candidates[:, has_bar], axis=0)
 
         result[column] = _wilder_smooth(true_range, window)
 
@@ -1956,8 +2151,12 @@ def rsi(close: pd.DataFrame, window: int) -> pd.DataFrame:
     for column in close.columns:
         values = close[column].to_numpy(dtype="float64")
         change = np.diff(values, prepend=np.nan)
-        gains = np.where(change > 0, change, 0.0)
-        losses = np.where(change < 0, -change, 0.0)
+
+        # np.where(change > 0, ...) by NaN převedlo na 0.0, protože NaN > 0 je False.
+        # Mezera by tím prošla jako „cena se nehnula" a rekurence by běžela dál.
+        missing = np.isnan(change)
+        gains = np.where(missing, np.nan, np.where(change > 0, change, 0.0))
+        losses = np.where(missing, np.nan, np.where(change < 0, -change, 0.0))
 
         # První prvek nemá předchozí hodnotu, takže do vyhlazování nevstupuje.
         average_gain = _wilder_smooth(gains[1:], window)
@@ -1979,7 +2178,7 @@ Do `research/forx/features/__init__.py` přidat import `from forx.features.wilde
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_wilder.py -q'`
-Expected: PASS, 4 testy
+Expected: PASS, 6 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
@@ -2116,6 +2315,7 @@ git commit -m "feat: rolling_high, rolling_low a dollar_volume_ma"
 import pandas as pd
 import pytest
 
+from forx.errors import UnknownBenchmarkError
 from forx.features.relative import relative_strength
 
 
@@ -2150,7 +2350,7 @@ def test_relative_strength_warmup_is_nan() -> None:
 
 
 def test_relative_strength_missing_benchmark_raises() -> None:
-    with pytest.raises(KeyError):
+    with pytest.raises(UnknownBenchmarkError):
         relative_strength(_panel(), window=2, benchmark_id="NENI")
 ```
 
@@ -2168,6 +2368,8 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'forx.features.relative
 
 import pandas as pd
 
+from forx.errors import UnknownBenchmarkError
+
 
 def relative_strength(frame: pd.DataFrame, window: int, benchmark_id: str) -> pd.DataFrame:
     """(C_t / C_{t-n}) / (B_t / B_{t-n}); hodnota > 1 znamená překonání benchmarku.
@@ -2176,7 +2378,7 @@ def relative_strength(frame: pd.DataFrame, window: int, benchmark_id: str) -> pd
     i když není členem univerza.
     """
     if benchmark_id not in frame.columns:
-        raise KeyError(f"Benchmark {benchmark_id} není v panelu.")
+        raise UnknownBenchmarkError(benchmark_id)
 
     instrument_return = frame / frame.shift(window)
     benchmark_return = frame[benchmark_id] / frame[benchmark_id].shift(window)
@@ -2343,7 +2545,7 @@ git commit -m "feat: cs_rank s percentilovým rankem nad univerzem k datu"
 - Test: `research/tests/test_compute.py`
 
 **Interfaces:**
-- Consumes: `BarPanel` (Task 6), `FeatureRequest` (Task 5), `REGISTRY` (Tasky 7–11), `InsufficientHistory`, `UnknownFeature` (Task 4)
+- Consumes: `BarPanel` (Task 6), `FeatureRequest` (Task 5), `REGISTRY` (Tasky 7–11), `InsufficientHistoryError`, `UnknownFeatureError` (Task 4)
 - Produces:
   - `forx.compute.FeatureSet` — `get(feature_id) -> pd.DataFrame`, `feature_ids() -> Sequence[str]`
   - `forx.compute.compute(panel, requests) -> FeatureSet`
@@ -2355,10 +2557,15 @@ git commit -m "feat: cs_rank s percentilovým rankem nad univerzem k datu"
 ```python
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from forx.compute import compute
-from forx.errors import InsufficientHistory, UnknownFeature
+from forx.features.cross_section import cs_rank
+from forx.features.moving import sma
+from forx.features.relative import relative_strength
+from forx.features.wilder import atr
+from forx.errors import InsufficientHistoryError, UnknownFeatureError
 from forx.panel import load_panel
 from forx.request import FeatureRequest
 from tests.fixtures import write_snapshot
@@ -2416,11 +2623,59 @@ def test_compute_caches_result(tmp_path: Path) -> None:
     assert first is second
 
 
+def test_compute_atr_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """Pojistka proti prohozeným maticím v dispatchi.
+
+    atr bere tři matice a jejich pořadí nejde poznat z výsledku — prohozené
+    high a low dá pořád věrohodná čísla. Porovnání s přímým voláním to zachytí.
+    """
+    _, panel = _panel(tmp_path)
+    request = FeatureRequest(name="atr", params={"window": 14})
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = atr(panel.adj_high, panel.adj_low, panel.adj_close, window=14)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_relative_strength_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """benchmark se musí vyjmout z params a předat jako benchmark_id."""
+    spec, panel = _panel(tmp_path)
+    request = FeatureRequest(
+        name="relative_strength",
+        params={"window": 20, "benchmark": spec.benchmark_id},
+    )
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = relative_strength(panel.adj_close, window=20, benchmark_id=spec.benchmark_id)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_cs_rank_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """cs_rank si zdroj vyžádá rekurzivně a dostane masku univerza, ne panel."""
+    _, panel = _panel(tmp_path)
+    source = FeatureRequest(name="sma", params={"window": 20})
+    ranked = FeatureRequest(name="cs_rank", params={"source": source.feature_id})
+
+    actual = compute(panel, [source, ranked]).get(ranked.feature_id)
+    expected = cs_rank(sma(panel.adj_close, window=20), panel.universe_mask)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
 def test_compute_unknown_feature_raises(tmp_path: Path) -> None:
     _, panel = _panel(tmp_path)
 
-    with pytest.raises(UnknownFeature):
+    with pytest.raises(UnknownFeatureError):
         compute(panel, [FeatureRequest(name="neexistuje", params={})])
+
+
+def test_compute_cs_rank_without_source_request_raises(tmp_path: Path) -> None:
+    _, panel = _panel(tmp_path)
+
+    with pytest.raises(UnknownFeatureError):
+        compute(panel, [FeatureRequest(name="cs_rank", params={"source": "sma(input=adj_close,window=99)"})])
 
 
 def test_compute_warmup_longer_than_history_raises(tmp_path: Path) -> None:
@@ -2428,7 +2683,7 @@ def test_compute_warmup_longer_than_history_raises(tmp_path: Path) -> None:
 
     features = compute(panel, [FeatureRequest(name="sma", params={"window": 5000})])
 
-    with pytest.raises(InsufficientHistory):
+    with pytest.raises(InsufficientHistoryError):
         features.get("sma(input=adj_close,window=5000)")
 ```
 
@@ -2453,7 +2708,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from forx.errors import InsufficientHistory, UnknownFeature
+from forx.errors import InsufficientHistoryError, UnknownFeatureError
 from forx.features import REGISTRY
 from forx.panel import BarPanel
 from forx.request import FeatureRequest
@@ -2496,7 +2751,7 @@ class FeatureSet:
         available = len(self._panel.adj_close.index)
 
         if window > available:
-            raise InsufficientHistory(request.feature_id, window, available)
+            raise InsufficientHistoryError(request.feature_id, window, available)
 
     def _evaluate(self, request: FeatureRequest) -> pd.DataFrame:
         function = REGISTRY[request.name]
@@ -2528,10 +2783,21 @@ def compute(panel: BarPanel, requests: Sequence[FeatureRequest]) -> FeatureSet:
 
     Neznámá featura selže hned při skládání, ne až při čtení — psát překlep
     v názvu a zjistit to za hodinu uprostřed sweepu je zbytečná ztráta.
+
+    Totéž platí pro zdroj cross-sectional featury: cs_rank se odkazuje na jinou
+    featuru přes její feature_id, a ta musí být mezi požadavky.
     """
     for request in requests:
         if request.name not in REGISTRY:
-            raise UnknownFeature(request.name)
+            raise UnknownFeatureError(request.name)
+
+    known = {request.feature_id for request in requests}
+
+    for request in requests:
+        source = request.params.get("source")
+
+        if source is not None and str(source) not in known:
+            raise UnknownFeatureError(str(source))
 
     return FeatureSet(panel, requests)
 ```
@@ -2541,7 +2807,7 @@ Do `research/forx/__init__.py` přidat `from forx.compute import FeatureSet, com
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_compute.py -q'`
-Expected: PASS, 6 testů
+Expected: PASS, 10 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
@@ -2755,7 +3021,7 @@ def test_feature_is_causal(tmp_path: Path, request_spec: FeatureRequest) -> None
         compute(truncated_panel, [request_spec]).get(request_spec.feature_id).loc[str(cutoff)]
     )
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 
 
 def test_relative_strength_is_causal(tmp_path: Path) -> None:
@@ -2773,25 +3039,30 @@ def test_relative_strength_is_causal(tmp_path: Path) -> None:
         compute(truncated_panel, [request_spec]).get(request_spec.feature_id).loc[str(cutoff)]
     )
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 
 
 def test_cs_rank_is_causal(tmp_path: Path) -> None:
+    """Cutoff MUSÍ ležet před delistingem, jinak test nemá sílu.
+
+    cs_rank se má rankovat nad univerzem k datu D, ne nad dnešním. Kdyby cutoff
+    ležel až za všemi změnami členství, univerzum k cutoffu by se rovnalo univerzu
+    na konci panelu a regrese používající poslední řádek masky by prošla nepovšimnutá.
+    Delisting je ve fixture na indexu 125, takže cutoff 100 obě univerza rozliší:
+    ke dni 100 je delistovaný instrument ještě členem, na konci panelu už ne.
+    """
     spec = write_snapshot(tmp_path)
-    cutoff = spec.dates[180]
-    requests = [
-        FeatureRequest(name="sma", params={"window": 20}),
-        FeatureRequest(name="cs_rank", params={"source": "sma(input=adj_close,window=20)"}),
-    ]
-    feature_id = "cs_rank(input=adj_close,source=sma(input=adj_close,window=20))"
+    cutoff = spec.dates[100]
+    source = FeatureRequest(name="sma", params={"window": 20})
+    ranked = FeatureRequest(name="cs_rank", params={"source": source.feature_id})
 
     full_panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
-    full_value = compute(full_panel, requests).get(feature_id).loc[str(cutoff)]
+    full_value = compute(full_panel, [source, ranked]).get(ranked.feature_id).loc[str(cutoff)]
 
     truncated_panel = load_panel(spec.dates[0], cutoff, list(spec.instrument_ids), tmp_path)
-    truncated_value = compute(truncated_panel, requests).get(feature_id).loc[str(cutoff)]
+    truncated_value = compute(truncated_panel, [source, ranked]).get(ranked.feature_id).loc[str(cutoff)]
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 ```
 
 - [ ] **Step 2: Spustit test**

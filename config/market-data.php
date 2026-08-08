@@ -30,4 +30,6 @@ return [
 
     'export_script' => env('MARKET_DATA_EXPORT_SCRIPT', base_path('research/export_parquet.py')),
 
+    'metadata_script' => env('MARKET_DATA_METADATA_SCRIPT', base_path('research/export_metadata.py')),
+
 ];

@@ -10,9 +10,13 @@ Research platforma pro hledání swing strategií na US akciích, která ve fin�
 
 ## Stav k dnešnímu dni
 
-**Podprojekt 1 je hotový. Všech 23 tasků plánu odpracováno.** 128 PHP testů a 3 Python kontraktní testy zelené, PHPStan na levelu max bez chyb, phpcs bez chyb.
+**Podprojekt 1 je hotový. Všech 23 tasků plánu odpracováno.** Podprojekt 2 je hotový také, všech 14 tasků. 137 PHP testů a 67 Python testů zelené, PHPStan na levelu max bez chyb, phpcs bez chyb, `ruff check` a `mypy --strict` bez chyb.
 
-Co existuje:
+Podprojekt 2 postavil indikátorovou vrstvu v Pythonu, balíček `forx` (`errors.py`, `request.py`, `panel.py`, `compute.py`, `missing.py` a podbalíček `features/`). Sedm indikátorů — `sma`, `ema`, `atr`, `rsi`, `rolling_high`, `rolling_low`, `dollar_volume_ma` — plus cross-sectional `cs_rank` a `relative_strength` proti benchmarku. Featury se skládají líně přes `FeatureSet`, takže sweep nad desítkami featur nepočítá dopředu ty, které se nakonec nepoužijí. `missing.py` rozlišuje tři druhy chybějící hodnoty — nelistovaný instrument, warm-up okna a mezeru v datech — protože jejich slití by v backtestu vyrobilo tichou chybu. Snapshot z podprojektu 1 se rozšířil o metadata (`instruments`, `universe_members`, `market_days`) a manifest, které `load_panel` potřebuje pro `listed_mask`, `universe_mask` a ověření verze adjustmentu.
+
+Kauzalitní testy (`research/tests/test_causality.py`, Task 14) ověřují nejcitlivější vlastnost celé vrstvy: featura spočítaná nad zkrácenými daty (≤ D) se musí rovnat featuře spočítané nad plnými daty a odečtené k datu D. Pokrývají všech sedm indikátorů, `relative_strength` a `cs_rank` — žádný se nedívá dopředu.
+
+Co existuje z podprojektu 1:
 
 | Vrstva | Obsah |
 |---|---|
@@ -41,7 +45,7 @@ docs/superpowers/specs/2026-08-07-research-workflow-design.md    podprojekt 5
 docs/superpowers/specs/2026-08-07-paper-execution-design.md      podprojekt 6
 docs/superpowers/specs/2026-08-07-live-execution-design.md       podprojekt 7
 docs/superpowers/plans/2026-08-06-market-data.md                 plán podprojektu 1, 23 tasků — HOTOVO
-docs/superpowers/plans/2026-08-07-indicators.md                  plán podprojektu 2, 14 tasků — nezačatý
+docs/superpowers/plans/2026-08-07-indicators.md                  plán podprojektu 2, 14 tasků — HOTOVO
 ```
 
 Git: branch `main`, remote `origin` = https://github.com/simako12-debug/forex.git. Každý task má vlastní větev `tech/task-NN`, vlastní commit a merge commit do `main`; větve jsou po sloučení smazané. Commit message každého tasku vyjmenovává odchylky od plánu a jejich důvod.
@@ -89,15 +93,13 @@ Na stroji běží další projekty (`stockmanager`, `wealthtracker`, `trading-*`
 
 ## Jak pokračovat
 
-### 1. Vykonat plán podprojektu 2 — doporučeno
+### 1. Napsat plán podprojektu 3 (definice strategie) — doporučeno
 
-Plán je hotový: `docs/superpowers/plans/2026-08-07-indicators.md`, 14 tasků ve čtyřech etapách. Etapa 2a rozšiřuje snapshot z podprojektu 1 o metadata a manifest (PHP), etapy 2b–2d staví indikátorovou vrstvu v Pythonu.
-
-**Rozšíření snapshotu je součástí plánu 2, ne dodatek k plánu 1.** Export z podprojektu 1 nese jen bary, ale `listed_mask` potřebuje `listed_at`/`delisted_at`, `cs_rank` potřebuje členství v univerzu k datu a rozlišení mezery od warm-upu potřebuje kalendář.
+Specifikace existuje (`docs/superpowers/specs/2026-08-06-strategy-definition-design.md`), plán ne. Teď to jde: indikátorová vrstva z podprojektu 2 je hotová a její veřejné API — `FeatureRequest`, `load_panel`, `compute`, sada sedmi indikátorů, `cs_rank`, `relative_strength` — je zafixované kauzalitními a golden testy. Strategie proti němu může počítat skóre bez rizika, že se rozhraní pod rukama změní. Dřív to nešlo, protože by se plán psal proti neexistujícím signaturám.
 
 Instrukce pro novou session:
 
-> Vykonej implementační plán `docs/superpowers/plans/2026-08-07-indicators.md` od Tasku 1. Použij skill `superpowers:subagent-driven-development` nebo `superpowers:executing-plans`. Nejdřív si přečti `docs/superpowers/STATUS.md`.
+> Napiš implementační plán pro podprojekt 3 podle specifikace `docs/superpowers/specs/2026-08-06-strategy-definition-design.md`. Použij skill `superpowers:writing-plans`. Nejdřív si přečti `docs/superpowers/STATUS.md` a `research/forx/` (veřejné API indikátorové vrstvy).
 
 ### 2. Naimportovat reálná data
 
@@ -133,6 +135,38 @@ U podprojektů 2–7 je změna návrhových rozhodnutí ještě zdarma. Nejcitli
 - long-only ve v1
 - nativní bracket příkazy u brokera místo syntetických stopů
 - žádný trailing stop ve v1
+
+## Follow-up z podprojektu 2
+
+Závěrečné review nad celou větví protřídilo 25 odložených nálezů. Nic z toho neblokovalo sloučení, ale tohle jsou položky, které někdo někdy dodělat má. Řazeno podle toho, jak moc to bolí.
+
+**Kontrakty a švy**
+
+- **`row_counts['daily_bars']` v `SnapshotExporter` počítá celou tabulku**, ne jen vyexportované roky, a `market-data:export-snapshot` to vypisuje jako počet barů za zadaný rozsah. Číslo je proto zavádějící a Python ho ignoruje. Opravit u producenta, ne u konzumenta.
+- **Neznámý instrument nebo neznámé univerzum v `load_panel` selhávají tiše** — instrument chybějící v `instruments.parquet` dostane masku samých `False` a `missing_reasons` ho ohlásí jako `NOT_LISTED`, i když je to jen díra v metadatech. Neznámé jméno nebo verze univerza dá `universe_mask` samých `False`, takže každý `cs_rank` vyjde `NaN`. Zbytek vrstvy je záměrně hlasitý; tyhle tři cesty ne.
+- **`SnapshotManifest::fromArray()` nemá produkčního volajícího.** PHP manifest nikdy nečte, Python si JSON parsuje sám. Buď zrušit, nebo použít.
+
+**Údržba, která praskne u osmého indikátoru**
+
+- **`_MULTI_INPUT_FEATURES`, `_CROSS_SECTIONAL_FEATURES`, `_BENCHMARK_FEATURES` a `_EXTRA_HISTORY_ROWS` v `compute.py` jsou čtyři ručně udržované mapy** oddělené od `REGISTRY`. Přidání indikátoru s jinou signaturou nebo jinou potřebou historie vyžaduje zásah do souboru, který není `features/`. Až přijde osmý, vtáhnout arity a potřebu historie do registru.
+- **Zaparkovaný nález: `cs_rank` rekurze nemá cycle guard.** Cyklus dnes nejde zkonstruovat, protože `feature_id` vnořeně obsahuje celý zdrojový řetězec — guard by byl kód proti nemožnému stavu. Poznámka je u dispatch množin. **Přehodnotit, pokud se `feature_id` změní na hash nebo zkrácenou reprezentaci.**
+
+**Testovací dluh**
+
+- `window` u indikátorů se validuje až v `compute()`, ne v samotných funkcích — přímé volání `sma(frame, window=0)` projde.
+- Chybí test na instrument neexistující v `instruments.parquet` a na úplně prázdnou sadu barů; větev `bars.empty` v `_pivot` je dnes nedosažitelná.
+- Chybí test na řadu kratší než okno a na jednořádkový frame.
+- `testExportEmptyDatabase` ověřuje jen `instruments`, ne všechny tři tabulky. `decodeCounts()` neověřuje tvar JSONu — `{}` projde a selže až výš v řetězci.
+- Tři kauzalitní testy opakují stejný scaffold, šlo by je parametrizovat.
+- `ExportSnapshotCommand` nemá test; `range()` při `--to-year < --from-year` tiše exportuje sestupně.
+
+**Invarianty, které drží jen próza**
+
+Z dvanácti kritických invariantů plánu je osm plně zafixovaných testem. Zbytek:
+
+- **Manifest se zapisuje jako poslední** — `SnapshotExporter::export()` to dělá správně, ale nic nespadne, když někdo `File::put` přesune nad export metadat. Test by nechal `MetadataExporter` vyhodit výjimku a ověřil, že manifest nevznikl.
+- **Panel se staví jen nad zadanými instrumenty** — `test_load_panel_shape` předává všechny čtyři z fixture, takže by prošel i implementaci, která `instrument_ids` ignoruje. Chybí test s podmnožinou.
+- **`dollar_volume_ma` počítá nad surovými hodnotami** — zafixované je jen `panel.frame("dollar_volume")`. Nic nehlídá, že *požadavek* na `dollar_volume_ma` ten vstup skutečně použije: `FeatureRequest(name="dollar_volume_ma", params={"window": 20})` s výchozím vstupem spočítá klouzavý průměr `adj_close` a vrátí věrohodné číslo. **Tohle je z celého seznamu nejpravděpodobnější past pro nového člověka.**
 
 ## Známé mezery a vědomé odchylky
 

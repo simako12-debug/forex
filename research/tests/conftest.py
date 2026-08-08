@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from export_metadata import export_metadata  # noqa: E402
 from export_parquet import export_year  # noqa: E402
 
 YEAR = 2019
@@ -26,6 +27,11 @@ BARS = [
 ]
 SPLIT_FACTOR = 4.0
 DIV_FACTOR = 0.99
+
+UNIVERSE_DEFINITION_ID = "660e8400-e29b-41d4-a716-446655440000"
+UNIVERSE_NAME = "liquid_us"
+UNIVERSE_VERSION = 1
+MARKET_EXCHANGE = "XNYS"
 
 
 def dsn() -> str:
@@ -57,6 +63,9 @@ def seeded_database():
 def _clear(cursor) -> None:
     cursor.execute("DELETE FROM adjustment_factors")
     cursor.execute("DELETE FROM daily_bars")
+    cursor.execute("DELETE FROM universe_members")
+    cursor.execute("DELETE FROM universe_definitions")
+    cursor.execute("DELETE FROM market_days")
     cursor.execute("DELETE FROM instrument_symbols")
     cursor.execute("DELETE FROM instruments")
 
@@ -67,9 +76,10 @@ def _seed(cursor) -> None:
         f"FOR VALUES FROM ('{YEAR}-01-01') TO ('{YEAR + 1}-01-01')"
     )
     cursor.execute(
-        "INSERT INTO instruments (id, name, asset_class, primary_exchange, created_at, updated_at) "
-        "VALUES (%s, 'Contract Fixture', 'us_equity', 'NYSE', now(), now())",
-        (INSTRUMENT,),
+        "INSERT INTO instruments (id, name, asset_class, primary_exchange, listed_at, delisted_at, "
+        "created_at, updated_at) "
+        "VALUES (%s, 'Contract Fixture', 'us_equity', 'NYSE', %s, NULL, now(), now())",
+        (INSTRUMENT, BARS[0][0]),
     )
 
     for date, close, volume in BARS:
@@ -87,6 +97,23 @@ def _seed(cursor) -> None:
         (INSTRUMENT, BARS[0][0], SPLIT_FACTOR, DIV_FACTOR),
     )
 
+    cursor.execute(
+        "INSERT INTO universe_definitions (id, name, version, rules, created_at, updated_at) "
+        "VALUES (%s, %s, %s, %s, now(), now())",
+        (UNIVERSE_DEFINITION_ID, UNIVERSE_NAME, UNIVERSE_VERSION, '{}'),
+    )
+
+    for date, _, _ in BARS:
+        cursor.execute(
+            "INSERT INTO universe_members (definition_id, date, instrument_id) VALUES (%s, %s, %s)",
+            (UNIVERSE_DEFINITION_ID, date, INSTRUMENT),
+        )
+        cursor.execute(
+            "INSERT INTO market_days (exchange, date, is_open, is_early_close, created_at, updated_at) "
+            "VALUES (%s, %s, true, false, now(), now())",
+            (MARKET_EXCHANGE, date),
+        )
+
 
 @pytest.fixture(scope="session")
 def exported_parquet_path(seeded_database):
@@ -95,6 +122,20 @@ def exported_parquet_path(seeded_database):
         export_year(YEAR, out_path, dsn())
 
         yield out_path
+
+
+@pytest.fixture(scope="session")
+def exported_metadata_dir(seeded_database):
+    """Vyexportuje metadatové Parquety stejnou cestou jako produkční příkaz.
+
+    Jediný způsob, jak zachytit rozejití SQL v export_metadata.py a sloupců,
+    které panel.py čte natvrdo — bez toho by přejmenování sloupce nechalo
+    testy zelené.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        export_metadata(directory, dsn())
+
+        yield directory
 
 
 @pytest.fixture(scope="session")

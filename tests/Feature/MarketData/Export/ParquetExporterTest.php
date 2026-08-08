@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
 use RuntimeException;
+use Tests\Support\TruncatesDatabaseAfterEachTest;
 use Tests\TestCase;
 
 #[CoversClass(ParquetExporter::class)]
@@ -21,8 +22,9 @@ final class ParquetExporterTest extends TestCase
     // DatabaseTruncation, ne RefreshDatabase: export běží jako samostatný proces
     // s vlastním připojením a data v nezacommitované transakci by neviděl.
     use DatabaseTruncation;
+    use TruncatesDatabaseAfterEachTest;
 
-    private const string INSTRUMENT = '550e8400-e29b-41d4-a716-446655440000';
+    private const string INSTRUMENT = '11111111-1111-4111-8111-111111111111';
     private const int YEAR = 2019;
 
     protected function tearDown(): void
