@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from forx.errors import AdjustmentVersionMismatchError
+from forx.errors import AdjustmentVersionMismatchError, IncompleteSnapshotError, UnknownInputError
 from forx.panel import load_panel
 from tests.fixtures import write_snapshot
 
@@ -77,3 +77,22 @@ def test_load_panel_universe_mask_follows_membership(tmp_path: Path) -> None:
 
     assert bool(panel.universe_mask[spec.latecomer_id].iloc[0]) is False
     assert bool(panel.universe_mask[spec.latecomer_id].loc[str(spec.latecomer_first_date)]) is True
+
+
+def test_load_panel_rejects_missing_year(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    for part in (tmp_path / "daily").glob("year=*/part.parquet"):
+        part.unlink()
+
+    with pytest.raises(IncompleteSnapshotError):
+        load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_frame_rejects_unknown_input(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+    with pytest.raises(UnknownInputError):
+        panel.frame("neexistujici_vstup")

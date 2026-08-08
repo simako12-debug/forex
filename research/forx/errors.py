@@ -4,6 +4,8 @@ Každý z nich je hlasité odmítnutí, ne tiché NaN. Specifikace to vyžaduje
 u warm-upu i u nesouladu verze adjustmentu.
 """
 
+from collections.abc import Iterable
+
 
 class ForxError(Exception):
     """Základ pro všechny chyby této vrstvy."""
@@ -38,4 +40,26 @@ class UnknownFeatureError(ForxError):
 
     def __init__(self, name: str) -> None:
         super().__init__(f"Neznámá featura: {name}")
+        self.name = name
+
+
+class IncompleteSnapshotError(ForxError):
+    """Snapshot postrádá soubor s bary pro rok, který spadá do požadovaného období.
+
+    Tiché přeskočení by vyrobilo oblast samých NaN, kterou downstream nerozezná
+    od warm-upu ani od delistingu — přesně to, čemu má rozlišení tří druhů
+    chybějící hodnoty zabránit.
+    """
+
+    def __init__(self, year: int, path: str) -> None:
+        super().__init__(f"Snapshot neobsahuje bary pro rok {year} (očekáváno v {path}).")
+        self.year = year
+        self.path = path
+
+
+class UnknownInputError(ForxError):
+    """Požadavek se odkazuje na vstup, který panel nezná."""
+
+    def __init__(self, name: str, allowed: Iterable[str]) -> None:
+        super().__init__(f"Neznámý vstup: {name}. Povolené: {', '.join(sorted(allowed))}")
         self.name = name

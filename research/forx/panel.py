@@ -15,7 +15,8 @@ from typing import cast
 
 import pandas as pd
 
-from forx.errors import AdjustmentVersionMismatchError
+from forx.errors import AdjustmentVersionMismatchError, IncompleteSnapshotError, UnknownInputError
+from forx.request import VALID_INPUTS
 
 EXPECTED_ADJUSTMENT_LOGIC_VERSION = 1
 
@@ -45,7 +46,14 @@ class BarPanel:
     universe_mask: pd.DataFrame
 
     def frame(self, name: str) -> pd.DataFrame:
-        """Vrátí matici podle jména vstupu z FeatureRequest.input."""
+        """Vrátí matici podle jména vstupu z FeatureRequest.input.
+
+        Neznámé jméno je hlasitá chyba, ne AttributeError o kus dál. Seznam
+        povolených vstupů žije v jednom místě jako VALID_INPUTS.
+        """
+        if name not in VALID_INPUTS:
+            raise UnknownInputError(name, VALID_INPUTS)
+
         if name == "dollar_volume":
             return self.close * self.volume
 
@@ -97,12 +105,17 @@ def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeInde
 
 
 def _read_bars(parquet_root: Path, start: date, end: date, columns: list[str]) -> pd.DataFrame:
-    years = range(start.year, end.year + 1)
-    parts = [
-        pd.read_parquet(parquet_root / "daily" / f"year={year}" / "part.parquet")
-        for year in years
-        if (parquet_root / "daily" / f"year={year}" / "part.parquet").exists()
-    ]
+    parts = []
+
+    for year in range(start.year, end.year + 1):
+        path = parquet_root / "daily" / f"year={year}" / "part.parquet"
+
+        # Chybějící rok je chyba, ne prázdno. Tiché přeskočení by vyrobilo oblast
+        # samých NaN nerozeznatelnou od warm-upu nebo delistingu.
+        if not path.exists():
+            raise IncompleteSnapshotError(year, str(path))
+
+        parts.append(pd.read_parquet(path))
 
     if not parts:
         return pd.DataFrame(columns=["instrument_id", "date", *_BAR_COLUMNS])
