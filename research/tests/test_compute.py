@@ -1,9 +1,14 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from forx.compute import compute
 from forx.errors import InsufficientHistoryError, UnknownFeatureError
+from forx.features.cross_section import cs_rank
+from forx.features.moving import sma
+from forx.features.relative import relative_strength
+from forx.features.wilder import atr
 from forx.panel import load_panel
 from forx.request import FeatureRequest
 from tests.fixtures import write_snapshot
@@ -82,3 +87,44 @@ def test_compute_warmup_longer_than_history_raises(tmp_path: Path) -> None:
 
     with pytest.raises(InsufficientHistoryError):
         features.get("sma(input=adj_close,window=5000)")
+
+
+def test_compute_atr_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """Pojistka proti prohozeným maticím v dispatchi.
+
+    atr bere tři matice a jejich pořadí nejde poznat z výsledku — prohozené
+    high a low dá pořád věrohodná čísla. Porovnání s přímým voláním to zachytí.
+    """
+    _, panel = _panel(tmp_path)
+    request = FeatureRequest(name="atr", params={"window": 14})
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = atr(panel.adj_high, panel.adj_low, panel.adj_close, window=14)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_relative_strength_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """benchmark se musí vyjmout z params a předat jako benchmark_id."""
+    spec, panel = _panel(tmp_path)
+    request = FeatureRequest(
+        name="relative_strength",
+        params={"window": 20, "benchmark": spec.benchmark_id},
+    )
+
+    actual = compute(panel, [request]).get(request.feature_id)
+    expected = relative_strength(panel.adj_close, window=20, benchmark_id=spec.benchmark_id)
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_compute_cs_rank_dispatch_matches_direct_call(tmp_path: Path) -> None:
+    """cs_rank si zdroj vyžádá rekurzivně a dostane masku univerza, ne panel."""
+    _, panel = _panel(tmp_path)
+    source = FeatureRequest(name="sma", params={"window": 20})
+    ranked = FeatureRequest(name="cs_rank", params={"source": source.feature_id})
+
+    actual = compute(panel, [source, ranked]).get(ranked.feature_id)
+    expected = cs_rank(sma(panel.adj_close, window=20), panel.universe_mask)
+
+    pd.testing.assert_frame_equal(actual, expected)
