@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import pandas as pd
 
+from forx.features.cross_section import cs_rank
 from forx.features.moving import ema, sma
 from forx.features.relative import relative_strength
 from forx.features.wilder import atr, rsi
@@ -17,6 +18,7 @@ FeatureFn = Callable[..., pd.DataFrame]
 
 REGISTRY: dict[str, FeatureFn] = {
     "atr": atr,
+    "cs_rank": cs_rank,
     "dollar_volume_ma": dollar_volume_ma,
     "ema": ema,
     "relative_strength": relative_strength,
@@ -30,6 +32,7 @@ __all__ = [
     "REGISTRY",
     "FeatureFn",
     "atr",
+    "cs_rank",
     "dollar_volume_ma",
     "ema",
     "relative_strength",
