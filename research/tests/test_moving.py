@@ -39,3 +39,21 @@ def test_sma_ignores_leading_nan_as_warmup() -> None:
 
     assert pd.isna(result.iloc[2])
     assert result.iloc[3] == pytest.approx(3.0)
+
+
+def test_sma_and_ema_agree_on_interior_gap() -> None:
+    """Mezera uprostřed řady musí obě funkce umlčet na stejně dlouho.
+
+    Kdyby EMA přenášela poslední hodnotu, vydala by hned za mezerou číslo,
+    zatímco SMA je ještě NaN — tichá imputace, kterou plán zakazuje.
+    """
+    gapped = _frame([1.0, 2.0, 3.0, float("nan"), 5.0, 6.0, 7.0])
+
+    sma_result = sma(gapped, window=3)["A"]
+    ema_result = ema(gapped, window=3)["A"]
+
+    assert pd.isna(sma_result.iloc[3]) and pd.isna(ema_result.iloc[3])
+    assert pd.isna(sma_result.iloc[4]) and pd.isna(ema_result.iloc[4])
+    assert pd.isna(sma_result.iloc[5]) and pd.isna(ema_result.iloc[5])
+    assert not pd.isna(sma_result.iloc[6])
+    assert not pd.isna(ema_result.iloc[6])

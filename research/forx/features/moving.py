@@ -3,6 +3,9 @@
 Definice jsou tady explicitní, protože „EMA" bez uvedení, čím se inicializuje,
 není zadání. Golden testy mají vzorec rozepsaný ve svém těle, takže jsou zároveň
 dokumentací konvence — kdyby ji někdo v budoucnu „opravil", testy spadnou.
+
+Mezera (NaN) v datech ruší stav rekurze EMA — bez toho by EMA tiše imputovala
+Missing data prostřednictvím poslední známé hodnoty, zatímco SMA by zůstala NaN.
 """
 
 import numpy as np
@@ -36,15 +39,18 @@ def ema(frame: pd.DataFrame, window: int) -> pd.DataFrame:
         previous = np.nan
 
         for position in range(len(values)):
+            # Mezera ruší stav rekurze. Seed z rolling().mean() je po mezeře NaN,
+            # dokud zase nebude window platných hodnot za sebou — tím se EMA
+            # naseeduje znovu a chová se stejně jako SMA.
+            if np.isnan(values[position]):
+                previous = np.nan
+
+                continue
+
             if np.isnan(previous):
                 if not np.isnan(seeds[position]):
                     previous = seeds[position]
                     output[position] = previous
-
-                continue
-
-            if np.isnan(values[position]):
-                output[position] = previous
 
                 continue
 
