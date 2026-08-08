@@ -2082,8 +2082,7 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, window: int)
         # nanmax nad sloupcem samých NaN vypíše RuntimeWarning a testový výstup má
         # být čistý. Chybějící bar (H i L jsou NaN) proto do výpočtu nevstupuje;
         # jeho TR zůstane NaN a _wilder_smooth si na něm zruší stav rekurze.
-        has_bar = np.isnan(high_values) == False  # noqa: E712
-        has_bar &= np.isnan(low_values) == False  # noqa: E712
+        has_bar = ~np.isnan(high_values) & ~np.isnan(low_values)
         true_range = np.full(len(high_values), np.nan)
         true_range[has_bar] = np.nanmax(candidates[:, has_bar], axis=0)
 
@@ -2099,8 +2098,12 @@ def rsi(close: pd.DataFrame, window: int) -> pd.DataFrame:
     for column in close.columns:
         values = close[column].to_numpy(dtype="float64")
         change = np.diff(values, prepend=np.nan)
-        gains = np.where(change > 0, change, 0.0)
-        losses = np.where(change < 0, -change, 0.0)
+
+        # np.where(change > 0, ...) by NaN převedlo na 0.0, protože NaN > 0 je False.
+        # Mezera by tím prošla jako „cena se nehnula" a rekurence by běžela dál.
+        missing = np.isnan(change)
+        gains = np.where(missing, np.nan, np.where(change > 0, change, 0.0))
+        losses = np.where(missing, np.nan, np.where(change < 0, -change, 0.0))
 
         # První prvek nemá předchozí hodnotu, takže do vyhlazování nevstupuje.
         average_gain = _wilder_smooth(gains[1:], window)
