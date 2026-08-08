@@ -907,6 +907,8 @@ Každý z nich je hlasité odmítnutí, ne tiché NaN. Specifikace to vyžaduje
 u warm-upu i u nesouladu verze adjustmentu.
 """
 
+from collections.abc import Iterable
+
 
 class ForxError(Exception):
     """Základ pro všechny chyby této vrstvy."""
@@ -942,6 +944,28 @@ class UnknownFeatureError(ForxError):
     def __init__(self, name: str) -> None:
         super().__init__(f"Neznámá featura: {name}")
         self.name = name
+
+
+class UnknownInputError(ForxError):
+    """Požadavek se odkazuje na vstup, který panel nezná."""
+
+    def __init__(self, name: str, allowed: Iterable[str]) -> None:
+        super().__init__(f"Neznámý vstup: {name}. Povolené: {', '.join(sorted(allowed))}")
+        self.name = name
+
+
+class IncompleteSnapshotError(ForxError):
+    """Snapshot postrádá soubor s bary pro rok, který spadá do požadovaného období.
+
+    Tiché přeskočení by vyrobilo oblast samých NaN, kterou downstream nerozezná
+    od warm-upu ani od delistingu — přesně to, čemu má rozlišení tří druhů
+    chybějící hodnoty zabránit.
+    """
+
+    def __init__(self, year: int, path: str) -> None:
+        super().__init__(f"Snapshot neobsahuje bary pro rok {year} (očekáváno v {path}).")
+        self.year = year
+        self.path = path
 ```
 
 `research/forx/__init__.py`:
@@ -949,9 +973,23 @@ class UnknownFeatureError(ForxError):
 ```python
 """Indikátorová vrstva Forx."""
 
-from forx.errors import AdjustmentVersionMismatchError, ForxError, InsufficientHistoryError, UnknownFeatureError
+from forx.errors import (
+    AdjustmentVersionMismatchError,
+    ForxError,
+    IncompleteSnapshotError,
+    InsufficientHistoryError,
+    UnknownFeatureError,
+    UnknownInputError,
+)
 
-__all__ = ["AdjustmentVersionMismatchError", "ForxError", "InsufficientHistoryError", "UnknownFeatureError"]
+__all__ = [
+    "AdjustmentVersionMismatchError",
+    "ForxError",
+    "IncompleteSnapshotError",
+    "InsufficientHistoryError",
+    "UnknownFeatureError",
+    "UnknownInputError",
+]
 ```
 
 - [ ] **Step 4: Napsat failující test fixture**
@@ -1364,7 +1402,8 @@ from pathlib import Path
 
 import pytest
 
-from forx.errors import AdjustmentVersionMismatchError
+from forx.errors import AdjustmentVersionMismatchError, IncompleteSnapshotError, UnknownInputError
+from forx.request import VALID_INPUTS
 from forx.panel import load_panel
 from tests.fixtures import write_snapshot
 
@@ -1429,6 +1468,25 @@ def test_load_panel_rejects_wrong_adjustment_version(tmp_path: Path) -> None:
 
     with pytest.raises(AdjustmentVersionMismatchError):
         load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_load_panel_rejects_missing_year(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    for part in (tmp_path / "daily").glob("year=*/part.parquet"):
+        part.unlink()
+
+    with pytest.raises(IncompleteSnapshotError):
+        load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+
+def test_frame_rejects_unknown_input(tmp_path: Path) -> None:
+    spec = write_snapshot(tmp_path)
+
+    panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
+
+    with pytest.raises(UnknownInputError):
+        panel.frame("neexistujici_vstup")
 
 
 def test_load_panel_universe_mask_follows_membership(tmp_path: Path) -> None:
@@ -1496,7 +1554,14 @@ class BarPanel:
     universe_mask: pd.DataFrame
 
     def frame(self, name: str) -> pd.DataFrame:
-        """Vrátí matici podle jména vstupu z FeatureRequest.input."""
+        """Vrátí matici podle jména vstupu z FeatureRequest.input.
+
+        Neznámé jméno je hlasitá chyba, ne AttributeError o kus dál. Seznam
+        povolených vstupů žije v jednom místě jako VALID_INPUTS.
+        """
+        if name not in VALID_INPUTS:
+            raise UnknownInputError(name, VALID_INPUTS)
+
         if name == "dollar_volume":
             return self.close * self.volume
 
@@ -1545,12 +1610,17 @@ def _trading_days(parquet_root: Path, start: date, end: date) -> pd.DatetimeInde
 
 
 def _read_bars(parquet_root: Path, start: date, end: date, columns: list[str]) -> pd.DataFrame:
-    years = range(start.year, end.year + 1)
-    parts = [
-        pd.read_parquet(parquet_root / "daily" / f"year={year}" / "part.parquet")
-        for year in years
-        if (parquet_root / "daily" / f"year={year}" / "part.parquet").exists()
-    ]
+    parts = []
+
+    for year in range(start.year, end.year + 1):
+        path = parquet_root / "daily" / f"year={year}" / "part.parquet"
+
+        # Chybějící rok je chyba, ne prázdno. Tiché přeskočení by vyrobilo oblast
+        # samých NaN nerozeznatelnou od warm-upu nebo delistingu.
+        if not path.exists():
+            raise IncompleteSnapshotError(year, str(path))
+
+        parts.append(pd.read_parquet(path))
 
     if not parts:
         return pd.DataFrame(columns=["instrument_id", "date", *_BAR_COLUMNS])
@@ -1622,7 +1692,7 @@ Do `research/forx/__init__.py` přidat `from forx.panel import BarPanel, load_pa
 - [ ] **Step 4: Spustit test a ověřit zelenou**
 
 Run: `docker compose exec research sh -c 'cd /app/research && python -m pytest tests/test_panel.py -q'`
-Expected: PASS, 7 testů
+Expected: PASS, 9 testů
 
 - [ ] **Step 5: Lint, typy, commit**
 
