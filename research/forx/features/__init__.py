@@ -9,12 +9,15 @@ from collections.abc import Callable
 import pandas as pd
 
 from forx.features.moving import ema, sma
+from forx.features.wilder import atr, rsi
 
 FeatureFn = Callable[..., pd.DataFrame]
 
 REGISTRY: dict[str, FeatureFn] = {
-    "sma": sma,
+    "atr": atr,
     "ema": ema,
+    "rsi": rsi,
+    "sma": sma,
 }
 
-__all__ = ["REGISTRY", "FeatureFn", "ema", "sma"]
+__all__ = ["REGISTRY", "FeatureFn", "atr", "ema", "rsi", "sma"]
