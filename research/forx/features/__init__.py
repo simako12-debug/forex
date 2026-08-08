@@ -9,6 +9,7 @@ from collections.abc import Callable
 import pandas as pd
 
 from forx.features.moving import ema, sma
+from forx.features.relative import relative_strength
 from forx.features.wilder import atr, rsi
 from forx.features.window import dollar_volume_ma, rolling_high, rolling_low
 
@@ -18,6 +19,7 @@ REGISTRY: dict[str, FeatureFn] = {
     "atr": atr,
     "dollar_volume_ma": dollar_volume_ma,
     "ema": ema,
+    "relative_strength": relative_strength,
     "rsi": rsi,
     "rolling_high": rolling_high,
     "rolling_low": rolling_low,
@@ -30,6 +32,7 @@ __all__ = [
     "atr",
     "dollar_volume_ma",
     "ema",
+    "relative_strength",
     "rsi",
     "rolling_high",
     "rolling_low",

@@ -5,6 +5,7 @@ from forx.errors import (
     ForxError,
     IncompleteSnapshotError,
     InsufficientHistoryError,
+    UnknownBenchmarkError,
     UnknownFeatureError,
     UnknownInputError,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "ForxError",
     "IncompleteSnapshotError",
     "InsufficientHistoryError",
+    "UnknownBenchmarkError",
     "UnknownFeatureError",
     "UnknownInputError",
     "load_panel",

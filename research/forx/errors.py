@@ -57,6 +57,14 @@ class IncompleteSnapshotError(ForxError):
         self.path = path
 
 
+class UnknownBenchmarkError(ForxError):
+    """Požadavek se odkazuje na benchmark, který panel nezná."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Neznámý benchmark: {name}")
+        self.name = name
+
+
 class UnknownInputError(ForxError):
     """Požadavek se odkazuje na vstup, který panel nezná."""
 
