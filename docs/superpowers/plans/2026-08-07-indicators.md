@@ -3021,7 +3021,7 @@ def test_feature_is_causal(tmp_path: Path, request_spec: FeatureRequest) -> None
         compute(truncated_panel, [request_spec]).get(request_spec.feature_id).loc[str(cutoff)]
     )
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 
 
 def test_relative_strength_is_causal(tmp_path: Path) -> None:
@@ -3039,25 +3039,30 @@ def test_relative_strength_is_causal(tmp_path: Path) -> None:
         compute(truncated_panel, [request_spec]).get(request_spec.feature_id).loc[str(cutoff)]
     )
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 
 
 def test_cs_rank_is_causal(tmp_path: Path) -> None:
+    """Cutoff MUSÍ ležet před delistingem, jinak test nemá sílu.
+
+    cs_rank se má rankovat nad univerzem k datu D, ne nad dnešním. Kdyby cutoff
+    ležel až za všemi změnami členství, univerzum k cutoffu by se rovnalo univerzu
+    na konci panelu a regrese používající poslední řádek masky by prošla nepovšimnutá.
+    Delisting je ve fixture na indexu 125, takže cutoff 100 obě univerza rozliší:
+    ke dni 100 je delistovaný instrument ještě členem, na konci panelu už ne.
+    """
     spec = write_snapshot(tmp_path)
-    cutoff = spec.dates[180]
-    requests = [
-        FeatureRequest(name="sma", params={"window": 20}),
-        FeatureRequest(name="cs_rank", params={"source": "sma(input=adj_close,window=20)"}),
-    ]
-    feature_id = "cs_rank(input=adj_close,source=sma(input=adj_close,window=20))"
+    cutoff = spec.dates[100]
+    source = FeatureRequest(name="sma", params={"window": 20})
+    ranked = FeatureRequest(name="cs_rank", params={"source": source.feature_id})
 
     full_panel = load_panel(spec.dates[0], spec.dates[-1], list(spec.instrument_ids), tmp_path)
-    full_value = compute(full_panel, requests).get(feature_id).loc[str(cutoff)]
+    full_value = compute(full_panel, [source, ranked]).get(ranked.feature_id).loc[str(cutoff)]
 
     truncated_panel = load_panel(spec.dates[0], cutoff, list(spec.instrument_ids), tmp_path)
-    truncated_value = compute(truncated_panel, requests).get(feature_id).loc[str(cutoff)]
+    truncated_value = compute(truncated_panel, [source, ranked]).get(ranked.feature_id).loc[str(cutoff)]
 
-    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False)
+    pd.testing.assert_series_equal(full_value, truncated_value, check_names=False, check_exact=True)
 ```
 
 - [ ] **Step 2: Spustit test**
