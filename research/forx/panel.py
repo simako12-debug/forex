@@ -79,10 +79,17 @@ def load_panel(
     bars = _read_bars(parquet_root, start, end, columns)
 
     frames = {name: _pivot(bars, name, trading_days, columns) for name in _BAR_COLUMNS}
+    listed_mask = _listed_mask(parquet_root, trading_days, columns)
+
+    # listed_mask je autorita. Bar mimo okno listingu je datová chyba podprojektu 1,
+    # ne signál — daily_bars se při ingestu proti listed_at/delisted_at nefiltrují,
+    # takže vadný vendor dump takový řádek propustí. Bez maskování by missing_reasons
+    # hlásilo PRESENT pro buňku, o které listed_mask tvrdí, že instrument neexistoval.
+    frames = {name: frame.where(listed_mask) for name, frame in frames.items()}
 
     return BarPanel(
         **frames,
-        listed_mask=_listed_mask(parquet_root, trading_days, columns),
+        listed_mask=listed_mask,
         universe_mask=_universe_mask(parquet_root, trading_days, columns, universe),
     )
 
