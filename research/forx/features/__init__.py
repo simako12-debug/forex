@@ -10,14 +10,28 @@ import pandas as pd
 
 from forx.features.moving import ema, sma
 from forx.features.wilder import atr, rsi
+from forx.features.window import dollar_volume_ma, rolling_high, rolling_low
 
 FeatureFn = Callable[..., pd.DataFrame]
 
 REGISTRY: dict[str, FeatureFn] = {
     "atr": atr,
+    "dollar_volume_ma": dollar_volume_ma,
     "ema": ema,
     "rsi": rsi,
+    "rolling_high": rolling_high,
+    "rolling_low": rolling_low,
     "sma": sma,
 }
 
-__all__ = ["REGISTRY", "FeatureFn", "atr", "ema", "rsi", "sma"]
+__all__ = [
+    "REGISTRY",
+    "FeatureFn",
+    "atr",
+    "dollar_volume_ma",
+    "ema",
+    "rsi",
+    "rolling_high",
+    "rolling_low",
+    "sma",
+]
