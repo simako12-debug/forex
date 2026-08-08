@@ -10,6 +10,7 @@ from forx.errors import (
     UnknownFeatureError,
     UnknownInputError,
 )
+from forx.missing import MissingReason, missing_reasons
 from forx.panel import BarPanel, load_panel
 from forx.request import FeatureRequest
 
@@ -21,9 +22,11 @@ __all__ = [
     "ForxError",
     "IncompleteSnapshotError",
     "InsufficientHistoryError",
+    "MissingReason",
     "UnknownBenchmarkError",
     "UnknownFeatureError",
     "UnknownInputError",
     "compute",
     "load_panel",
+    "missing_reasons",
 ]
